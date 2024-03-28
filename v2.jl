@@ -109,18 +109,19 @@ function convergence_test(errsize)
     
     E = zeros(length(NE))
 
-    for i = 1:lastindex(NE)
-        println("Iniciando i = ", i)
-        Ci, Xi, xPTnei, EQoLGi = solve(alpha, beta, NE[i], a, b, f, u)
-        E[i] = erroVet(NE[i], xPTnei, EQoLGi, Ci, u)
+    @time begin
+        for i = 1:lastindex(NE)
+            println("Iniciando i = ", i)
+            Ci, Xi, xPTnei, EQoLGi = solve(alpha, beta, NE[i], a, b, f, u)
+            E[i] = erroVet(NE[i], xPTnei, EQoLGi, Ci, u)
+        end
     end
 
     return [E, H]
 end
 
-@time begin
-    E, H = convergence_test(25)
 
-    plot!(H, E, xaxis=:log2, yaxis=:log2)
-    plot!(H, H .^2, xaxis=:log2, yaxis=:log2)
-end
+    E, H = convergence_test(23)
+    size(E)
+    # plot!(H, E, xaxis=:log2, yaxis=:log2)
+    # plot!(H, H .^2, xaxis=:log2, yaxis=:log2)

@@ -159,7 +159,7 @@ def resolve(ne, u, f, alpha, beta):
   F, xPTne = montaF(ne, h, X, EQoLG, f)
 
   C = linalg.spsolve(K,F)
-  print(C)
+  # print(C)
 
   return C, X, xPTne, EQoLG
 
@@ -167,15 +167,17 @@ def erroVet(ne, W, xPTne, phiPT, EQoLG, C, u):
   h = 1/ne
 
   d = np.array([*C, 0])
-  print(np.square(u(xPTne) - phiPT @ d[EQoLG]).shape)
+  
   return np.sqrt(h/2 * np.sum(prod(W, np.square(u(xPTne) - prod(phiPT, d[EQoLG])))))
 
 
 alpha, beta, f, u = exemplos(1)
 
-M = 2**np.arange(3,4)-1
+M = 2**np.arange(2,24)-1
 
 H = 1/(M+1)
+
+E = np.zeros((len(M), ))
 
 t = time.time()
 for i in range(len(M)):
@@ -183,8 +185,9 @@ for i in range(len(M)):
   hi = H[i]
 
   Ci, Xi, xPTnei, EQoLGi = resolve(M[i]+1, u, f, alpha, beta)
-  E = erroVet(M[i]+1, W, xPTnei, phiPT, EQoLGi, Ci, u)
+  E[i] = erroVet(M[i]+1, W, xPTnei, phiPT, EQoLGi, Ci, u)
 
 elapsed = time.time() - t
-print('dim', Ci.size)
+
 print("Conclui i = ", i, "em ", elapsed, " segundos")
+print(E.shape)
