@@ -1,4 +1,4 @@
-using GaussQuadrature, SparseArrays, StatsBase
+using GaussQuadrature, SparseArrays, StatsBase, Plots
 
 function montaLG(ne)
     LG1 = [1:1:ne;]
@@ -61,13 +61,24 @@ function montaF(ne, neq, X, f, EQoLG)
     I = vec(EQoLG')
     F = StatsBase.counts(I, Fe)
 
-    return F[1:neq]
+    return [F[1:neq], xPTne]
 end
 
-function solve()
-    alpha = 1; beta = 1; ne = 2^23; dx = 1/ne; neq = ne-1
-    a = 0; b = 1
-    f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
+function erroVet(ne, xPTne, EQoLG, C, u)
+    npg = 5; P, W = legendre(npg)
+
+    phiP = reduce(vcat, PHI(P)')
+    h = 1/ne
+
+    d = hcat(C, 0)
+
+    E = sqrt(h/2 * sum(W' * ((u.(xPTne)' - (phiP' * d[EQoLG])).^2)))
+
+    return E
+end
+
+function solve(alpha, beta, ne, a, b, f, u)
+    dx = 1/ne; neq = ne-1
 
     X = [a:dx:b;]
 
@@ -78,15 +89,38 @@ function solve()
     K = montaK(ne, neq, dx, alpha, beta, EQoLG)
     # println("K")
     
-    F = montaF(ne, neq, X, f, EQoLG)'
-    # println("F")
+    F, xPTne = montaF(ne, neq, X, f, EQoLG)'
+    # println("F ", F)
+    # println("xPTne ", xPTne)
     
+    # println("Resolvendo sistema")
     C = F/K
     # println("sistema")
 
-    return C
+    return C, X, xPTne, EQoLG
+end
+
+function convergence_test(errsize)
+    alpha = 1; beta = 1; a = 0; b = 1;
+    f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
+
+    NE = 2 .^ [2:1:errsize;]
+    H = 1 ./ NE
+    
+    E = zeros(length(NE))
+
+    for i = 1:lastindex(NE)
+        println("Iniciando i = ", i)
+        Ci, Xi, xPTnei, EQoLGi = solve(alpha, beta, NE[i], a, b, f, u)
+        E[i] = erroVet(NE[i], xPTnei, EQoLGi, Ci, u)
+    end
+
+    return [E, H]
 end
 
 @time begin
-    solve()
+    E, H = convergence_test(25)
+
+    plot!(H, E, xaxis=:log2, yaxis=:log2)
+    plot!(H, H .^2, xaxis=:log2, yaxis=:log2)
 end

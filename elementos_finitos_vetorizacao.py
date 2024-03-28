@@ -167,22 +167,23 @@ def erroVet(ne, W, xPTne, phiPT, EQoLG, C, u):
   h = 1/ne
 
   d = np.array([*C, 0])
-
+  print(np.square(u(xPTne) - phiPT @ d[EQoLG]).shape)
   return np.sqrt(h/2 * np.sum(prod(W, np.square(u(xPTne) - prod(phiPT, d[EQoLG])))))
 
 
 alpha, beta, f, u = exemplos(1)
 
-M = 2**np.arange(23,24)-1
+M = 2**np.arange(3,4)-1
 
 H = 1/(M+1)
 
+t = time.time()
 for i in range(len(M)):
   # print("Entrou em i = ", i)
   hi = H[i]
 
-  t = time.time()
   Ci, Xi, xPTnei, EQoLGi = resolve(M[i]+1, u, f, alpha, beta)
+  E = erroVet(M[i]+1, W, xPTnei, phiPT, EQoLGi, Ci, u)
 
 elapsed = time.time() - t
 print('dim', Ci.size)
