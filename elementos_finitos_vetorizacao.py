@@ -36,7 +36,7 @@ K = montaK(ne, dx, alpha, beta)
 
 # tst = [1 -1]
 """
-
+from sys import getsizeof
 import time
 import math
 import numpy as np
@@ -159,7 +159,6 @@ def resolve(ne, u, f, alpha, beta):
   F, xPTne = montaF(ne, h, X, EQoLG, f)
 
   C = linalg.spsolve(K,F)
-  # print(C)
 
   return C, X, xPTne, EQoLG
 
@@ -173,21 +172,31 @@ def erroVet(ne, W, xPTne, phiPT, EQoLG, C, u):
 
 alpha, beta, f, u = exemplos(1)
 
-M = 2**np.arange(2,24)-1
-
-H = 1/(M+1)
-
-E = np.zeros((len(M), ))
-
 t = time.time()
-for i in range(len(M)):
-  # print("Entrou em i = ", i)
-  hi = H[i]
-
-  Ci, Xi, xPTnei, EQoLGi = resolve(M[i]+1, u, f, alpha, beta)
-  E[i] = erroVet(M[i]+1, W, xPTnei, phiPT, EQoLGi, Ci, u)
-
+resolve(2**23, u, f, alpha, beta)
 elapsed = time.time() - t
+print(elapsed, " segundos")
 
-print("Conclui i = ", i, "em ", elapsed, " segundos")
-print(E.shape)
+# print(tracemalloc.get_traced_memory())
+# tracemalloc.stop()
+
+# M = 2**np.arange(2,24)-1
+
+# H = 1/(M+1)
+
+# E = np.zeros((len(M), ))
+
+# t = time.time()
+# for i in range(len(M)):
+#   # print("Entrou em i = ", i)
+
+#   resolve(M[i]+1, u, f, alpha, beta)
+#   # Ci, Xi, xPTnei, EQoLGi = resolve(M[i]+1, u, f, alpha, beta)
+#   # E[i] = erroVet(M[i]+1, W, xPTnei, phiPT, EQoLGi, Ci, u)
+
+# elapsed = time.time() - t
+
+# print("Conclui i = ", i, "em ", elapsed, " segundos")
+# # print(E.shape)
+
+

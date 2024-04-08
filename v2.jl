@@ -97,7 +97,7 @@ function solve(alpha, beta, ne, a, b, f, u)
     C = F/K
     # println("sistema")
 
-    return nothing#C, X, xPTne, EQoLG
+    return C#, X, xPTne, EQoLG
 end
 
 function convergence_test(errsize)
