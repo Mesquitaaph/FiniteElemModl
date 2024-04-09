@@ -87,10 +87,10 @@ function solve(alpha, beta, ne, a, b, f, u)
     EQoLG = EQ[LG]
 
     K = montaK(ne, neq, dx, alpha, beta, EQoLG)
-    # println("K")
+    println("K", K)
     
     F, xPTne = montaF(ne, neq, X, f, EQoLG)'
-    # println("F ", F)
+    println("F ", F)
     # println("xPTne ", xPTne)
     
     # println("Resolvendo sistema")
@@ -126,6 +126,6 @@ end
 # plot!(H, E, xaxis=:log2, yaxis=:log2)
 # plot!(H, H .^2, xaxis=:log2, yaxis=:log2)
 
-alpha = 1; beta = 1; a = 0; b = 1; ne = 2^15
+alpha = 1; beta = 1; a = 0; b = 1; ne = 2^2
 f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
-@btime solve(alpha, beta, ne, a, b, f, u)
+solve(alpha, beta, ne, a, b, f, u)

@@ -1,13 +1,26 @@
-using GaussQuadrature, SparseArrays, StatsBase, BenchmarkTools
+using GaussQuadrature, SparseArrays, StatsBase, BenchmarkTools, LinearAlgebra, Plots, StaticArrays
+
+macro show_locals()
+    quote 
+        locals = Base.@locals
+        println("\nIndividual sizes (does not account for overlap):")
+        for (name, refval) in locals
+            println("\t$name: $(Base.format_bytes(Base.summarysize(refval)))")
+        end
+        print("Joint size: ")
+        println("$(Base.format_bytes(Base.summarysize(values(locals))))\n")
+    end
+end
 
 function montaLG(ne)
     LG1 = 1:1:ne
 
-    LG = Matrix{Int64}(undef, ne, 2)
+    LG = zeros(Int64, ne, 2)
 
     LG[:,1] .= LG1
     LG[:,2] .= LG1.+1
 
+    
     return LG'
 end
 
@@ -32,15 +45,6 @@ function montaK!(ne, neq, dx, alpha, beta, EQoLG::Matrix{Int64})
     phiP = reduce(vcat, PHI(P)'); dphiP = hcat(dPHI.(P)...)
     
     Ke = 2*alpha/dx .* (W.*dphiP) * dphiP' + beta*dx/2 .* (W.*phiP) * phiP'
-    
-    # I = EQoLG[:, [1, 2]]'
-    # I = reshape(I, ne*2)
-    
-    # K = spzeros(neq+1, neq+1)
-
-    # S = repeat(Ke, ne, ne)
-    
-    # K[I,I] .+= S[I,I]
 
     I = vec(EQoLG[[1,1,2,2], 1:1:ne])
     J = vec(EQoLG[[1,2], repeat(1:1:ne, inner=2)])
@@ -48,6 +52,7 @@ function montaK!(ne, neq, dx, alpha, beta, EQoLG::Matrix{Int64})
     S = repeat(reshape(Ke, 4), outer=ne)
     
     K = sparse(I, J, S)[1:neq, 1:neq]
+    S = nothing; I = nothing; J = nothing
 
     return K
 end
@@ -72,18 +77,19 @@ function montaF(ne, neq, X, f, EQoLG)
     I = vec(EQoLG')
     F = StatsBase.counts(I, Fe)
 
-    return F[1:neq], xPTne
+    xPTne = nothing; Fe = nothing; I = nothing;
+    return F[1:neq]#, xPTne
 end
 
-function erroVet(ne, xPTne, EQoLG, C, u)
+function erroVet(ne, EQoLG, C, u, X)
     npg = 5; P, W = legendre(npg)
-
+    xPTne = montaxPTne(dx, X[1:end-1]', P)
     phiP = reduce(vcat, PHI(P)')
     h = 1/ne
 
-    d = hcat(C, 0)
+    d = vcat(C, 0)
 
-    E = sqrt(h/2 * sum(W' * ((u.(xPTne)' - (phiP' * d[EQoLG])).^2)))
+    E = sqrt(h/2 * sum(W' * ((u.(xPTne) - (phiP' * d[EQoLG])).^2)))
 
     return E
 end
@@ -93,25 +99,32 @@ function solve(alpha, beta, ne, a, b, f, u)
 
     X = a:dx:b
     
-    EQ = montaEQ(ne, neq)
-    LG = montaLG(ne)
+    EQ = montaEQ(ne, neq); LG = montaLG(ne)
     EQoLG = EQ[LG]
 
+    EQ = nothing; LG = nothing;
+
     K = montaK!(ne, neq, dx, alpha, beta, EQoLG)
-    
-    F, xPTne = montaF(ne, neq, X, f, EQoLG)
 
-    C = F'/K
+    F = montaF(ne, neq, X, f, EQoLG)
 
-    F = 1; K = 1;
-    # GC.gc()
+    # C = K\F
+    C = Symmetric(K)\F
 
-    return C#, X, xPTne, EQoLG
+    F = nothing; K = nothing;
+    # @show_locals
+    return C, X, EQoLG
 end
 
-alpha = 1; beta = 1; a = 0; b = 1; ne = 2^15
+# 2^25 máximo de elementos que meu pc aguenta: 16GB de RAM
+alpha = 1; beta = 1; a = 0; b = 1; ne = 2^2
 f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
-@btime solve(alpha, beta, ne, a, b, f, u)
+
+@btime begin
+    C, X, EQoLG = solve(alpha, beta, ne, a, b, f, u)
+
+    C = nothing; X = nothing; EQoLG = nothing
+end
 
 function convergence_test(errsize)
     alpha = 1; beta = 1; a = 0; b = 1;
@@ -124,46 +137,49 @@ function convergence_test(errsize)
 
     for i = 1:lastindex(NE)
         # println("Iniciando i = ", i)
-        solve(alpha, beta, NE[i], a, b, f, u)
-        # Ci, Xi, xPTnei, EQoLGi = solve(alpha, beta, NE[i], a, b, f, u)
-        # E[i] = erroVet(NE[i], xPTnei, EQoLGi, Ci, u)
+        # solve(alpha, beta, NE[i], a, b, f, u)
+        Ci, Xi, EQoLGi = solve(alpha, beta, NE[i], a, b, f, u)
+        E[i] = erroVet(NE[i], EQoLGi, Ci, u, Xi)
     end
 
-    return nothing
+    return E, H
 end
 
+
+# @btime begin
+#     E, H = convergence_test(23)
+# end
+# size(E)
+# plot!(H, E, xaxis=:log2, yaxis=:log2)
+# plot!(H, H .^2, xaxis=:log2, yaxis=:log2)
+
 # @btime convergence_test(23)
+
+
+############ TESTES ############
+
 # dx = 1/ne; neq = ne - 1; EQ = montaEQ(ne, neq); LG = montaLG(ne); EQoLG = EQ[LG]; EQoLGT = EQoLG'
 
-# function teste(alpha, beta, ne, a, b, f, u)
-#     K = montaK!(ne, neq, dx, alpha, beta, EQoLG)
+# function teste(alpha, beta, ne, a, b, f, u, neq)
+#     LG1 = 1:1:ne
+    
+#     LG = Matrix{Int64}(undef, ne, 2)
+
+#     LG[:,1] .= LG1
+#     LG[:,2] .= LG1.+1
+
+#     return LG'
 # end
 
-# @btime teste(alpha, beta, ne, a, b, f, u)
+# @btime teste(alpha, beta, ne, a, b, f, u, neq)
 
-# function teste2(alpha, beta, ne, a, b, f, u)
-#     I = vec(EQoLG[[1,1,2,2], 1:1:ne])
-#     J = vec(EQoLG[[1,2], repeat(1:1:ne, inner=2)])
-    
-#     S = repeat(reshape([1 2; 3 4], 4), outer=ne)
-    
-#     return nothing
-# end
-# @btime teste2(alpha, beta, ne, a, b, f, u)
+# function teste1(alpha, beta, ne, a, b, f, u, neq)
+#     LG = Matrix{Int64}(undef, ne, 2)
 
-# function teste2!(I, J, S, alpha, beta, ne, a, b, f, u)
-#     I .= vec(EQoLG[[1,1,2,2], 1:1:ne])
-#     J .= vec(EQoLG[[1,2], repeat(1:1:ne, inner=2)])
-    
-#     S .= repeat(reshape([1 2; 3 4], 4), outer=ne)
-    
-#     return nothing
+#     LG[:,1] .= 1:1:ne
+#     LG[:,2] .= 2:1:(ne+1)
+
+#     return LG'
 # end
 
-# I = zeros(Float64, 4*ne)
-# J = zeros(Float64, 4*ne)
-# S = zeros(Float64, 4*ne)
-# @btime teste2!(I, J, S, alpha, beta, ne, a, b, f, u)
-
-
-# @btime montaLG(ne)
+# @btime teste1(alpha, beta, ne, a, b, f, u, neq)

@@ -172,31 +172,29 @@ def erroVet(ne, W, xPTne, phiPT, EQoLG, C, u):
 
 alpha, beta, f, u = exemplos(1)
 
-t = time.time()
-resolve(2**23, u, f, alpha, beta)
-elapsed = time.time() - t
-print(elapsed, " segundos")
-
-# print(tracemalloc.get_traced_memory())
-# tracemalloc.stop()
-
-# M = 2**np.arange(2,24)-1
-
-# H = 1/(M+1)
-
-# E = np.zeros((len(M), ))
-
 # t = time.time()
-# for i in range(len(M)):
-#   # print("Entrou em i = ", i)
-
-#   resolve(M[i]+1, u, f, alpha, beta)
-#   # Ci, Xi, xPTnei, EQoLGi = resolve(M[i]+1, u, f, alpha, beta)
-#   # E[i] = erroVet(M[i]+1, W, xPTnei, phiPT, EQoLGi, Ci, u)
-
+# C, X, xPTne, EQoLG = resolve(2**2, u, f, alpha, beta)
+# print(C)
 # elapsed = time.time() - t
+# print(elapsed, " segundos")
 
-# print("Conclui i = ", i, "em ", elapsed, " segundos")
-# # print(E.shape)
+t = time.time()
+
+M = 2**np.arange(2,24)
+
+H = 1/M
+
+E = np.zeros((len(M), ))
+
+for i in range(len(M)):
+  # print("Entrou em i = ", i)
+
+  # resolve(M[i]+1, u, f, alpha, beta)
+  Ci, Xi, xPTnei, EQoLGi = resolve(M[i], u, f, alpha, beta)
+  E[i] = erroVet(M[i], W, xPTnei, phiPT, EQoLGi, Ci, u)
+
+elapsed = time.time() - t
+
+print("Conclui i = ", i, "em ", elapsed, " segundos")
 
 
