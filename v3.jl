@@ -82,6 +82,7 @@ function montaF(ne, neq, X, f, EQoLG)
 end
 
 function erroVet(ne, EQoLG, C, u, X)
+    dx = 1/ne
     npg = 5; P, W = legendre(npg)
     xPTne = montaxPTne(dx, X[1:end-1]', P)
     phiP = reduce(vcat, PHI(P)')
@@ -117,23 +118,18 @@ function solve(alpha, beta, ne, a, b, f, u)
 end
 
 # 2^25 máximo de elementos que meu pc aguenta: 16GB de RAM
-alpha = 1; beta = 1; a = 0; b = 1; ne = 2^2
+alpha = 1; beta = 1; a = 0; b = 1; ne = 2^23
 f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
 
-@btime begin
-    C, X, EQoLG = solve(alpha, beta, ne, a, b, f, u)
+# @btime begin
+#     C, X, EQoLG = solve(alpha, beta, ne, a, b, f, u)
 
-    C = nothing; X = nothing; EQoLG = nothing
-end
+#     C = nothing; X = nothing; EQoLG = nothing
+# end
 
-function convergence_test(errsize)
+function convergence_test!(NE, E)
     alpha = 1; beta = 1; a = 0; b = 1;
     f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
-
-    NE = 2 .^ [2:1:errsize;]
-    H = 1 ./ NE
-    
-    E = zeros(length(NE))
 
     for i = 1:lastindex(NE)
         # println("Iniciando i = ", i)
@@ -141,20 +137,26 @@ function convergence_test(errsize)
         Ci, Xi, EQoLGi = solve(alpha, beta, NE[i], a, b, f, u)
         E[i] = erroVet(NE[i], EQoLGi, Ci, u, Xi)
     end
-
-    return E, H
 end
 
+errsize = 23
+NE = 2 .^ [2:1:errsize;]
 
-# @btime begin
-#     E, H = convergence_test(23)
-# end
+E = zeros(length(NE))
+
+@btime begin
+    convergence_test!(NE, E)
+end
+
+### Tempo no MatLab: 4.25 segundos NE = [2:2^23]
+
 # size(E)
 # plot!(H, E, xaxis=:log2, yaxis=:log2)
 # plot!(H, H .^2, xaxis=:log2, yaxis=:log2)
 
 # @btime convergence_test(23)
 
+GC.gc()
 
 ############ TESTES ############
 
@@ -183,3 +185,7 @@ end
 # end
 
 # @btime teste1(alpha, beta, ne, a, b, f, u, neq)
+
+test = 2 .^ [2:1:4;]
+
+test[2]
