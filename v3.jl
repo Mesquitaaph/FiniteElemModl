@@ -1,4 +1,7 @@
-using GaussQuadrature, SparseArrays, StatsBase, BenchmarkTools, LinearAlgebra, Plots, StaticArrays
+using GaussQuadrature, SparseArrays, StatsBase, BenchmarkTools, LinearAlgebra, Plots
+BLAS.get_num_threads()
+BLAS.set_num_threads(12)
+BLAS.get_num_threads()
 
 macro show_locals()
     quote 
@@ -12,7 +15,7 @@ macro show_locals()
     end
 end
 
-function montaLG(ne)
+function montaLG(ne::Int64)
     LG1 = 1:1:ne
 
     LG = zeros(Int64, ne, 2)
@@ -20,26 +23,25 @@ function montaLG(ne)
     LG[:,1] .= LG1
     LG[:,2] .= LG1.+1
 
-    
     return LG'
 end
 
-function montaEQ(ne, neq)
+function montaEQ(ne::Int64, neq::Int64)
     EQ = zeros(Int64, ne+1, 1) .+ ne
     EQ[2:ne] .= 1:1:neq
 
     return EQ
 end
 
-function PHI(P)
+function PHI(P::Vector{Float64})
     return [(-1*P.+1)./2, (P.+1)./2]
 end
 
-function dPHI(P)
+function dPHI(P::Float64)
     return [-1/2*(P^0); 1/2*(P^0)]
 end
 
-function montaK!(ne, neq, dx, alpha, beta, EQoLG::Matrix{Int64})
+function montaK(ne::Int64, neq::Int64, dx::Float64, alpha::Float64, beta::Float64, EQoLG::Matrix{Int64})
     npg = 2; P, W = legendre(npg)
     
     phiP = reduce(vcat, PHI(P)'); dphiP = hcat(dPHI.(P)...)
@@ -57,11 +59,11 @@ function montaK!(ne, neq, dx, alpha, beta, EQoLG::Matrix{Int64})
     return K
 end
 
-function montaxPTne(dx, X, P)
+function montaxPTne(dx::Float64, X, P::Vector{Float64})
     return (dx ./ 2) .* (P .+ 1) .+ X
 end
 
-function montaF(ne, neq, X, f, EQoLG)
+function montaF(ne::Int64, neq::Int64, X, f, EQoLG::Matrix{Int64})
     npg = 5; P, W = legendre(npg)
 
     phiP = reduce(vcat, PHI(P)')#; dphiP = hcat(dPHI.(P)...)
@@ -81,7 +83,7 @@ function montaF(ne, neq, X, f, EQoLG)
     return F[1:neq]#, xPTne
 end
 
-function erroVet(ne, EQoLG, C, u, X)
+function erroVet(ne::Int64, EQoLG::Matrix{Int64}, C, u, X)
     dx = 1/ne
     npg = 5; P, W = legendre(npg)
     xPTne = montaxPTne(dx, X[1:end-1]', P)
@@ -95,7 +97,7 @@ function erroVet(ne, EQoLG, C, u, X)
     return E
 end
 
-function solve(alpha, beta, ne, a, b, f, u)
+function solveSys(alpha::Float64, beta::Float64, ne::Int64, a::Float64, b::Float64, f, u)
     dx = 1/ne; neq = ne-1
 
     X = a:dx:b
@@ -105,12 +107,16 @@ function solve(alpha, beta, ne, a, b, f, u)
 
     EQ = nothing; LG = nothing;
 
-    K = montaK!(ne, neq, dx, alpha, beta, EQoLG)
-
+    K = montaK(ne, neq, dx, alpha, beta, EQoLG)
+    
     F = montaF(ne, neq, X, f, EQoLG)
 
-    # C = K\F
-    C = Symmetric(K)\F
+    C = zeros(Float64, neq)
+
+    println("Resolvendo sistema")
+    C .= Symmetric(K)\F
+
+    println("Sistema resolvido")
 
     F = nothing; K = nothing;
     # @show_locals
@@ -118,24 +124,24 @@ function solve(alpha, beta, ne, a, b, f, u)
 end
 
 # 2^25 máximo de elementos que meu pc aguenta: 16GB de RAM
-alpha = 1; beta = 1; a = 0; b = 1; ne = 2^23
+alpha::Float64 = 1; beta::Float64 = 1; a::Float64 = 0; b::Float64 = 1; ne = 2^22
 f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
 
-# @btime begin
-#     C, X, EQoLG = solve(alpha, beta, ne, a, b, f, u)
+@btime begin
+    C, X, EQoLG = solveSys(alpha, beta, ne, a, b, f, u)
 
-#     C = nothing; X = nothing; EQoLG = nothing
-# end
+    C = nothing; X = nothing; EQoLG = nothing
+end
 
 function convergence_test!(NE, E)
-    alpha = 1; beta = 1; a = 0; b = 1;
+    alpha::Float64 = 1; beta::Float64 = 1; a::Float64 = 0; b::Float64 = 1;
     f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
 
-    for i = 1:lastindex(NE)
+    @inbounds for i = 1:lastindex(NE)
         # println("Iniciando i = ", i)
-        # solve(alpha, beta, NE[i], a, b, f, u)
-        Ci, Xi, EQoLGi = solve(alpha, beta, NE[i], a, b, f, u)
-        E[i] = erroVet(NE[i], EQoLGi, Ci, u, Xi)
+        # solveSys(alpha, beta, NE[i], a, b, f, u)
+        Ci, Xi, EQoLGi = solveSys(alpha, beta, NE[i], a, b, f, u)
+        # E[i] = erroVet(NE[i], EQoLGi, Ci, u, Xi)
     end
 end
 
@@ -156,36 +162,67 @@ end
 
 # @btime convergence_test(23)
 
-GC.gc()
+# GC.gc()
 
 ############ TESTES ############
 
-# dx = 1/ne; neq = ne - 1; EQ = montaEQ(ne, neq); LG = montaLG(ne); EQoLG = EQ[LG]; EQoLGT = EQoLG'
+dx = 1/ne; neq = ne - 1; EQ = montaEQ(ne, neq); LG = montaLG(ne); EQoLG = EQ[LG]; EQoLGT = EQoLG'
 
-# function teste(alpha, beta, ne, a, b, f, u, neq)
-#     LG1 = 1:1:ne
+function montaK2(ne::Int64, neq::Int64, dx::Float64, alpha::Float64, beta::Float64, EQoLG::Matrix{Int64})
+    npg = 2; P, W = legendre(npg)
     
-#     LG = Matrix{Int64}(undef, ne, 2)
+    phiP = reduce(vcat, PHI(P)'); dphiP = hcat(dPHI.(P)...)
+    
+    Ke = 2*alpha/dx .* (W.*dphiP) * dphiP' .+ beta*dx/2 .* (W.*phiP) * phiP'
+    # Ke = 2*alpha/dx*W .* (dphiP * dphiP' .+ beta*dx/2 .* phiP * phiP')
 
-#     LG[:,1] .= LG1
-#     LG[:,2] .= LG1.+1
+    I = vec(EQoLG[[1,1,2,2], 1:1:ne])
+    J = vec(EQoLG[[1,2], repeat(1:1:ne, inner=2)])
+    
+    S = repeat(reshape(Ke, 4), outer=ne)
+    
+    K = sparse(I, J, S)[1:neq, 1:neq]
+    S = nothing; I = nothing; J = nothing
 
-#     return LG'
-# end
+    return K
+end
 
-# @btime teste(alpha, beta, ne, a, b, f, u, neq)
+function teste()
+    alpha::Float64 = 1; beta::Float64 = 1; a::Float64 = 0; b::Float64 = 1; ne = 2^23
+    f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
+
+    dx = 1/ne; neq = ne - 1;
+
+    X = a:dx:b
+    
+    EQ = montaEQ(ne, neq); LG = montaLG(ne)
+    EQoLG = EQ[LG]
+
+    EQ = nothing; LG = nothing;
+
+    K = montaK2(ne, neq, dx, alpha, beta, EQoLG)
+
+    # F = montaF(ne, neq, X, f, EQoLG)
+
+    # C = Symmetric(K)\F
+
+    # C, X, EQoLG = solveSys(alpha, beta, ne, a, b, f, u)
+
+    # C = nothing; X = nothing; EQoLG = nothing
+end
+
+# @btime teste()
 
 # function teste1(alpha, beta, ne, a, b, f, u, neq)
-#     LG = Matrix{Int64}(undef, ne, 2)
+#     a = rand(10000, 10000)
+#     b = rand(10000,)
+#     println("ASASD")
+#     a\b
+#     println("ERWRWERW")
 
-#     LG[:,1] .= 1:1:ne
-#     LG[:,2] .= 2:1:(ne+1)
-
-#     return LG'
+#     nothing
 # end
 
 # @btime teste1(alpha, beta, ne, a, b, f, u, neq)
 
-test = 2 .^ [2:1:4;]
-
-test[2]
+GC.gc()
