@@ -59,6 +59,30 @@ function montaK(ne::Int64, neq::Int64, dx::Float64, alpha::Float64, beta::Float6
     return K
 end
 
+function montaK2(ne::Int64, neq::Int64, dx::Float64, alpha::Float64, beta::Float64, EQoLG::Matrix{Int64})
+    npg = 2; P, W = legendre(npg)
+    
+    phiP = reduce(vcat, PHI(P)'); dphiP = hcat(dPHI.(P)...)
+    
+    Ke = 2*alpha/dx .* (W.*dphiP) * dphiP' + beta*dx/2 .* (W.*phiP) * phiP'
+
+    K = spzeros(Float64, neq+1, neq+1)
+
+    EQoLGT = EQoLG'
+    
+    for a = 1:2
+        for b = 1:2
+            for e = 1:ne
+                @inbounds i = EQoLGT[e,a]
+                @inbounds j = EQoLGT[e,b]
+                @inbounds K[i,j] += Ke[a,b]
+            end
+        end
+    end
+
+    return K[1:neq, 1:neq]
+end
+
 function montaxPTne(dx::Float64, X, P::Vector{Float64})
     return (dx ./ 2) .* (P .+ 1) .+ X
 end
@@ -107,7 +131,7 @@ function solveSys(alpha::Float64, beta::Float64, ne::Int64, a::Float64, b::Float
 
     EQ = nothing; LG = nothing;
 
-    K = montaK(ne, neq, dx, alpha, beta, EQoLG)
+    K = montaK2(ne, neq, dx, alpha, beta, EQoLG)
     
     F = montaF(ne, neq, X, f, EQoLG)
 
@@ -124,7 +148,7 @@ function solveSys(alpha::Float64, beta::Float64, ne::Int64, a::Float64, b::Float
 end
 
 # 2^25 máximo de elementos que meu pc aguenta: 16GB de RAM
-alpha::Float64 = 1; beta::Float64 = 1; a::Float64 = 0; b::Float64 = 1; ne = 2^22
+alpha::Float64 = 1; beta::Float64 = 1; a::Float64 = 0; b::Float64 = 1; ne = 2^15
 f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
 
 @btime begin
@@ -150,9 +174,9 @@ NE = 2 .^ [2:1:errsize;]
 
 E = zeros(length(NE))
 
-@btime begin
-    convergence_test!(NE, E)
-end
+# @btime begin
+#     convergence_test!(NE, E)
+# end
 
 ### Tempo no MatLab: 4.25 segundos NE = [2:2^23]
 
