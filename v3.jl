@@ -46,14 +46,15 @@ function montaK(ne::Int64, neq::Int64, dx::Float64, alpha::Float64, beta::Float6
     
     phiP = reduce(vcat, PHI(P)'); dphiP = hcat(dPHI.(P)...)
     
-    Ke = 2*alpha/dx .* (W.*dphiP) * dphiP' + beta*dx/2 .* (W.*phiP) * phiP'
+    Ke = zeros(Float64, 2, 2)
+    Ke .= 2*alpha/dx .* (W.*dphiP) * dphiP' .+ beta*dx/2 .* (W.*phiP) * phiP'
 
-    I = vec(EQoLG[[1,1,2,2], 1:1:ne])
-    J = vec(EQoLG[[1,2], repeat(1:1:ne, inner=2)])
-    
+    @inbounds I = reshape(EQoLG[[1,1,2,2], 1:1:ne], 4*ne)
+    @inbounds J = reshape(EQoLG[[1,2], repeat(1:1:ne, inner=2)], 4*ne)
+
     S = repeat(reshape(Ke, 4), outer=ne)
     
-    K = sparse(I, J, S)[1:neq, 1:neq]
+    @inbounds K = sparse(I, J, S)[1:neq, 1:neq]
     S = nothing; I = nothing; J = nothing
 
     return K
@@ -66,20 +67,16 @@ function montaK2(ne::Int64, neq::Int64, dx::Float64, alpha::Float64, beta::Float
     
     Ke = 2*alpha/dx .* (W.*dphiP) * dphiP' + beta*dx/2 .* (W.*phiP) * phiP'
 
-    K = spzeros(Float64, neq+1, neq+1)
+    K = zeros(Float64, neq+1, neq+1)
 
     EQoLGT = EQoLG'
     
-    for a = 1:2
-        for b = 1:2
-            for e = 1:ne
-                @inbounds i = EQoLGT[e,a]
-                @inbounds j = EQoLGT[e,b]
-                @inbounds K[i,j] += Ke[a,b]
-            end
-        end
+    @inbounds for a = 1:2, b = 1:2, e = 1:ne
+        i = EQoLGT[e,a]
+        j = EQoLGT[e,b]
+        K[i,j] += Ke[a,b]
     end
-
+    
     return K[1:neq, 1:neq]
 end
 
@@ -131,7 +128,7 @@ function solveSys(alpha::Float64, beta::Float64, ne::Int64, a::Float64, b::Float
 
     EQ = nothing; LG = nothing;
 
-    K = montaK2(ne, neq, dx, alpha, beta, EQoLG)
+    K = montaK(ne, neq, dx, alpha, beta, EQoLG)
     
     F = montaF(ne, neq, X, f, EQoLG)
 
@@ -148,7 +145,7 @@ function solveSys(alpha::Float64, beta::Float64, ne::Int64, a::Float64, b::Float
 end
 
 # 2^25 máximo de elementos que meu pc aguenta: 16GB de RAM
-alpha::Float64 = 1; beta::Float64 = 1; a::Float64 = 0; b::Float64 = 1; ne = 2^15
+alpha::Float64 = 1; beta::Float64 = 1; a::Float64 = 0; b::Float64 = 1; ne = 2^23
 f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
 
 @btime begin
