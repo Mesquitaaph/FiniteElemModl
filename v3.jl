@@ -1,4 +1,20 @@
-using GaussQuadrature, SparseArrays, StatsBase, BenchmarkTools, LinearAlgebra, Plots, StaticArrays
+# using MUMPS, MPI
+using GaussQuadrature, StatsBase, SparseArrays, BenchmarkTools, LinearAlgebra, 
+Plots, StaticArrays, MKL, Pardiso
+
+BLAS.get_config()
+versioninfo()
+# BLAS.set_num_threads(12)
+# ps = MKLPardisoSolver()
+get_nprocs(ps)
+
+# KrylovJL_GMRES()
+# KLUFactorization()
+# KrylovKitJL_GMRES()
+# IterativeSolversJL_GMRES()
+# UMFPACKFactorization()
+# MKLPardisoFactorize()
+# MKLPardisoIterate()
 
 macro show_locals()
     quote 
@@ -95,7 +111,7 @@ function erroVet(ne, EQoLG, C, u, X)
     return E
 end
 
-function solve(alpha, beta, ne, a, b, f, u)
+function solveSys(alpha, beta, ne, a, b, f, u)
     dx = 1/ne; neq = ne-1
 
     X = a:dx:b
@@ -109,8 +125,18 @@ function solve(alpha, beta, ne, a, b, f, u)
 
     F = montaF(ne, neq, X, f, EQoLG)
 
+    println("Resolvendo sistema")
+    # C = solve(Symmetric(K), F)
+    
     # C = K\F
-    C = Symmetric(K)\F
+    # cho = cholesky(K)
+    prob = LinearProblem(Symmetric(K), F)
+    C = solve(prob)
+    # C = solve(ps, K, F)
+    println("Resolvendo sistema: fim")
+    # C = cho\F
+    
+
 
     F = nothing; K = nothing;
     # @show_locals
@@ -121,11 +147,13 @@ end
 alpha = 1; beta = 1; a = 0; b = 1; ne = 2^23
 f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
 
-# @btime begin
-#     C, X, EQoLG = solve(alpha, beta, ne, a, b, f, u)
+# MPI.Init()
+@btime begin
+    C, X, EQoLG = solveSys(alpha, beta, ne, a, b, f, u)
 
-#     C = nothing; X = nothing; EQoLG = nothing
-# end
+    C = nothing; X = nothing; EQoLG = nothing
+end
+UMFPACKFactorization()
 
 function convergence_test!(NE, E)
     alpha = 1; beta = 1; a = 0; b = 1;
@@ -133,8 +161,8 @@ function convergence_test!(NE, E)
 
     for i = 1:lastindex(NE)
         # println("Iniciando i = ", i)
-        # solve(alpha, beta, NE[i], a, b, f, u)
-        Ci, Xi, EQoLGi = solve(alpha, beta, NE[i], a, b, f, u)
+        # solveSys(alpha, beta, NE[i], a, b, f, u)
+        Ci, Xi, EQoLGi = solveSys(alpha, beta, NE[i], a, b, f, u)
         E[i] = erroVet(NE[i], EQoLGi, Ci, u, Xi)
     end
 end
@@ -144,9 +172,9 @@ NE = 2 .^ [2:1:errsize;]
 
 E = zeros(length(NE))
 
-@btime begin
-    convergence_test!(NE, E)
-end
+# @btime begin
+#     convergence_test!(NE, E)
+# end
 
 ### Tempo no MatLab: 4.25 segundos NE = [2:2^23]
 
@@ -160,7 +188,7 @@ GC.gc()
 
 ############ TESTES ############
 
-# dx = 1/ne; neq = ne - 1; EQ = montaEQ(ne, neq); LG = montaLG(ne); EQoLG = EQ[LG]; EQoLGT = EQoLG'
+dx = 1/ne; neq = ne - 1; EQ = montaEQ(ne, neq); LG = montaLG(ne); EQoLG = EQ[LG]; EQoLGT = EQoLG'
 
 # function teste(alpha, beta, ne, a, b, f, u, neq)
 #     LG1 = 1:1:ne
@@ -186,6 +214,16 @@ GC.gc()
 
 # @btime teste1(alpha, beta, ne, a, b, f, u, neq)
 
-test = 2 .^ [2:1:4;]
+# K = montaK!(ne, neq, dx, alpha, beta, EQoLG)
+# b = rand(2^22-1)
+# # prob = LinearProblem(A, b)
 
-test[2]
+# for alg in [UMFPACKFactorization()
+#     #, MKLPardisoFactorize(), MKLPardisoIterate()
+#     ]
+#     println(alg)
+#     cholesky(K)
+#   end
+# A\b
+
+# MPI.Finalize()
