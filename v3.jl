@@ -1,7 +1,7 @@
-using GaussQuadrature, SparseArrays, StatsBase, BenchmarkTools, LinearAlgebra, Plots
+using GaussQuadrature, SparseArrays, StatsBase, BenchmarkTools, LinearAlgebra, Plots, Profile, MKL, Pardiso
 BLAS.get_num_threads()
 BLAS.set_num_threads(12)
-BLAS.get_num_threads()
+UMFPACKFactorization()
 
 macro show_locals()
     quote 
@@ -42,7 +42,7 @@ function dPHI(P::Float64)
 end
 
 function montaK(ne::Int64, neq::Int64, dx::Float64, alpha::Float64, beta::Float64, EQoLG::Matrix{Int64})
-    npg = 2; P, W = legendre(npg)
+    npg = 2; P, W = legendre(Float64, npg)
     
     phiP = reduce(vcat, PHI(P)'); dphiP = hcat(dPHI.(P)...)
     
@@ -55,7 +55,7 @@ function montaK(ne::Int64, neq::Int64, dx::Float64, alpha::Float64, beta::Float6
     S = repeat(reshape(Ke, 4), outer=ne)
     
     @inbounds K = sparse(I, J, S)[1:neq, 1:neq]
-    S = nothing; I = nothing; J = nothing
+    S = nothing; I = nothing; J = nothing; Ke = nothing
 
     return K
 end
@@ -85,11 +85,11 @@ function montaxPTne(dx::Float64, X, P::Vector{Float64})
 end
 
 function montaF(ne::Int64, neq::Int64, X, f, EQoLG::Matrix{Int64})
-    npg = 5; P, W = legendre(npg)
+    npg = 5; P, W = legendre(Float64, npg)
 
     phiP = reduce(vcat, PHI(P)')#; dphiP = hcat(dPHI.(P)...)
     
-    dx = 1/ne
+    dx::Float64 = 1/ne
 
     xPTne = montaxPTne(dx, X[1:end-1]', P)
 
@@ -119,7 +119,7 @@ function erroVet(ne::Int64, EQoLG::Matrix{Int64}, C, u, X)
 end
 
 function solveSys(alpha::Float64, beta::Float64, ne::Int64, a::Float64, b::Float64, f, u)
-    dx = 1/ne; neq = ne-1
+    dx::Float64 = 1/ne; neq = ne-1
 
     X = a:dx:b
     
@@ -132,11 +132,23 @@ function solveSys(alpha::Float64, beta::Float64, ne::Int64, a::Float64, b::Float
     
     F = montaF(ne, neq, X, f, EQoLG)
 
-    C = zeros(Float64, neq)
+    # println(nnz(K)/(neq^2))
+    # println(typeof(F))
 
+    C = zero(F)
+
+    println("Fatorando")
+    cho = RecursiveFactorization.lu!(copy(K), Vector{Int}(undef, size(K, 2)))
+    println("Terminou fatorizacao")
+    
     println("Resolvendo sistema")
-    C .= Symmetric(K)\F
-
+    C .= cho\F
+    # solve!(ps, C, tril(K), F)
+    # ldiv!(C, factorize(K), F)
+    # C .= factorize(K)\F 
+    # C .= Symmetric(K)\F
+    # Profile.print()
+    # Profile.clear()
     println("Sistema resolvido")
 
     F = nothing; K = nothing;
@@ -145,7 +157,7 @@ function solveSys(alpha::Float64, beta::Float64, ne::Int64, a::Float64, b::Float
 end
 
 # 2^25 máximo de elementos que meu pc aguenta: 16GB de RAM
-alpha::Float64 = 1; beta::Float64 = 1; a::Float64 = 0; b::Float64 = 1; ne = 2^23
+alpha::Float64 = 1; beta::Float64 = 1; a::Float64 = 0; b::Float64 = 1; ne::Int64 = 2^23
 f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
 
 @btime begin
@@ -153,6 +165,8 @@ f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
 
     C = nothing; X = nothing; EQoLG = nothing
 end
+
+# solveSys(alpha, beta, ne, a, b, f, u)
 
 function convergence_test!(NE, E)
     alpha::Float64 = 1; beta::Float64 = 1; a::Float64 = 0; b::Float64 = 1;
@@ -234,15 +248,23 @@ end
 
 # @btime teste()
 
-# function teste1(alpha, beta, ne, a, b, f, u, neq)
-#     a = rand(10000, 10000)
-#     b = rand(10000,)
-#     println("ASASD")
-#     a\b
-#     println("ERWRWERW")
+function teste1(alpha, beta, ne, a, b, f, u, neq)
+    p = 10^(-7)
+    A = sprand(Float64, neq, neq, p)
+    X = rand(Float64, neq)
 
-#     nothing
-# end
+    # Y = zero(X);
+
+    # ldiv!(Y, lu(A), X);
+
+    # println(Y)
+
+    println("Iniciando A\\X")
+    A\X
+    println("Finalizou A\\X")
+
+    nothing
+end
 
 # @btime teste1(alpha, beta, ne, a, b, f, u, neq)
 
