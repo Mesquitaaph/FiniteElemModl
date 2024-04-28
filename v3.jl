@@ -1,20 +1,27 @@
 # using MUMPS, MPI
 using GaussQuadrature, StatsBase, SparseArrays, BenchmarkTools, LinearAlgebra, 
-Plots, StaticArrays, MKL, Pardiso
+Plots, StaticArrays, MKLSparse, LinearSolve, BandedMatrices
 
-BLAS.get_config()
-versioninfo()
-# BLAS.set_num_threads(12)
+# BLAS.get_config()
+# versioninfo()
+# BLAS.get_num_threads()
+BLAS.set_num_threads(12)
 # ps = MKLPardisoSolver()
-get_nprocs(ps)
+# get_nprocs(ps)
 
 # KrylovJL_GMRES()
 # KLUFactorization()
 # KrylovKitJL_GMRES()
 # IterativeSolversJL_GMRES()
-# UMFPACKFactorization()
+UMFPACKFactorization()
 # MKLPardisoFactorize()
 # MKLPardisoIterate()
+
+const cs = (
+    cache1 = zeros(Float64, 2, 2),
+    cache2 = zeros(Float64, 2, 2),
+    cache3 = zeros(Float64, 2, 2)
+)
 
 macro show_locals()
     quote 
@@ -55,19 +62,51 @@ function dPHI(P)
     return [-1/2*(P^0); 1/2*(P^0)]
 end
 
+function dPHI2(P)
+    return [-1/2*(P.^0), 1/2*(P.^ 0)]
+end
+
 function montaK!(ne, neq, dx, alpha, beta, EQoLG::Matrix{Int64})
     npg = 2; P, W = legendre(npg)
     
-    phiP = reduce(vcat, PHI(P)'); dphiP = hcat(dPHI.(P)...)
+    phiP = zeros(Float64, 2, 2); dphiP = zeros(Float64, 2, 2);
+
+    phiP = reduce(hcat, PHI(P)); dphiP = reduce(hcat, dPHI2(P))
+
+
+    # println(size(phiP), size(dphiP))
+    # Ke = zeros(Float64, 2, 2)
+    # cache = similar(Ke)
+
+    cs.cache1 .= W.*dphiP'
+    mul!(cs.cache2, cs.cache1, dphiP)
+    cs.cache1 .= W.*phiP'
     
-    Ke = 2*alpha/dx .* (W.*dphiP) * dphiP' + beta*dx/2 .* (W.*phiP) * phiP'
+    mul!(cs.cache2, cs.cache1, phiP, beta*dx/2, 2*alpha/dx)
+
+    # Ke = 2*alpha/dx .* (W.*dphiP') * dphiP + beta*dx/2 .* (W.*phiP') * phiP
+    # Ke = 2*alpha/dx .* cs.cache * dphiP + beta*dx/2 .* (W.*phiP') * phiP
+    # Ke = 2*alpha/dx .* Ke + beta*dx/2 .* cs.cache * phiP
+    # Ke = beta*dx/2 .* cs.cache * phiP + 2*alpha/dx .* Ke
+
 
     I = vec(EQoLG[[1,1,2,2], 1:1:ne])
     J = vec(EQoLG[[1,2], repeat(1:1:ne, inner=2)])
     
-    S = repeat(reshape(Ke, 4), outer=ne)
+    # S = repeat(reshape(Ke, 4), outer=ne)
+    S = repeat(reshape(cs.cache2, 4), outer=ne)
     
-    K = sparse(I, J, S)[1:neq, 1:neq]
+    
+    Ks = sparse(I, J, S)[1:neq, 1:neq]
+
+    K = BandedMatrix(Zeros(neq, neq), (1,1))
+
+    # println("Convertendo")
+    Threads.@threads for coo in findall(!iszero, Ks)
+        K[coo] = Ks[coo]
+    end
+    # println("Converteu")
+
     S = nothing; I = nothing; J = nothing
 
     return K
@@ -125,16 +164,21 @@ function solveSys(alpha, beta, ne, a, b, f, u)
 
     F = montaF(ne, neq, X, f, EQoLG)
 
-    println("Resolvendo sistema")
+    C = zeros(Float64, neq)
+
+    # println(typeof(K))
+
+    # println("Resolvendo sistema")
     # C = solve(Symmetric(K), F)
     
-    # C = K\F
+    # println(typeof(Tridiagonal(K)))
+    C .= Symmetric(K)\F
     # cho = cholesky(K)
-    prob = LinearProblem(Symmetric(K), F)
-    C = solve(prob)
+    # prob = LinearProblem(Symmetric(K), F)
+    # C = solve(prob)
     # C = solve(ps, K, F)
-    println("Resolvendo sistema: fim")
     # C = cho\F
+    # println("Resolvendo sistema: fim")
     
 
 
@@ -147,13 +191,11 @@ end
 alpha = 1; beta = 1; a = 0; b = 1; ne = 2^23
 f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
 
-# MPI.Init()
 @btime begin
     C, X, EQoLG = solveSys(alpha, beta, ne, a, b, f, u)
 
     C = nothing; X = nothing; EQoLG = nothing
 end
-UMFPACKFactorization()
 
 function convergence_test!(NE, E)
     alpha = 1; beta = 1; a = 0; b = 1;
@@ -169,9 +211,11 @@ end
 
 errsize = 23
 NE = 2 .^ [2:1:errsize;]
-
+H = 1 ./NE
 E = zeros(length(NE))
 
+# 9.299s banded
+# 14.438 not banded
 # @btime begin
 #     convergence_test!(NE, E)
 # end
@@ -179,8 +223,9 @@ E = zeros(length(NE))
 ### Tempo no MatLab: 4.25 segundos NE = [2:2^23]
 
 # size(E)
-# plot!(H, E, xaxis=:log2, yaxis=:log2)
+plot(H, E, xaxis=:log2, yaxis=:log2)
 # plot!(H, H .^2, xaxis=:log2, yaxis=:log2)
+# println(E)
 
 # @btime convergence_test(23)
 
@@ -190,18 +235,51 @@ GC.gc()
 
 dx = 1/ne; neq = ne - 1; EQ = montaEQ(ne, neq); LG = montaLG(ne); EQoLG = EQ[LG]; EQoLGT = EQoLG'
 
-# function teste(alpha, beta, ne, a, b, f, u, neq)
-#     LG1 = 1:1:ne
+function teste(alpha, beta, ne, a, b, f, u, neq)
+
+    Ke = [1 1; 1 1]
     
-#     LG = Matrix{Int64}(undef, ne, 2)
+    # # println(K)
+    
+    # for e in 1:ne, b in 1:2, a in 1:2
+    #         i = EQoLG[a,e]
+    #         j = EQoLG[b,e]
+    #         if i == ne || j == ne
+    #             continue
+    #         end
+    #         K[i,j] += Ke[a,b]
+    # end
+    
+    I = vec(EQoLG[[1,1,2,2], 1:1:ne])
+    J = vec(EQoLG[[1,2], repeat(1:1:ne, inner=2)])
+    
+    S = repeat(reshape(Ke, 4), outer=ne)    
+    
+    Ks = sparse(I, J, S)[1:neq, 1:neq]
 
-#     LG[:,1] .= LG1
-#     LG[:,2] .= LG1.+1
+    # for coo in findall(!iszero, Ks)
+    #     println(Ks[coo])
+    # end
+    # K = BandedMatrix(Zeros(neq, neq), (1,1))
 
-#     return LG'
-# end
+    # println("Convertendo")
+    # Threads.@threads for coo in findall(!iszero, Ks)
+    #     K[coo] = Ks[coo]
+    # end
+    # println("Converteu")
+
+    # K
+end
 
 # @btime teste(alpha, beta, ne, a, b, f, u, neq)
+# EQoLG
+# BandedMatrix(Zeros(neq+1, neq+1), (1,1))
+
+# Threads.@threads for ij in 1:neq^2
+#     i = fld(ij-1, neq) + 1
+#     j = mod(ij-1, neq) + 1
+#     K[i,j] = Ks[i,j]
+# end
 
 # function teste1(alpha, beta, ne, a, b, f, u, neq)
 #     LG = Matrix{Int64}(undef, ne, 2)
@@ -225,5 +303,3 @@ dx = 1/ne; neq = ne - 1; EQ = montaEQ(ne, neq); LG = montaLG(ne); EQoLG = EQ[LG]
 #     cholesky(K)
 #   end
 # A\b
-
-# MPI.Finalize()
