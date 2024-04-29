@@ -1,22 +1,23 @@
 # using MUMPS, MPI
 using GaussQuadrature, StatsBase, SparseArrays, BenchmarkTools, LinearAlgebra, 
-Plots, StaticArrays, MKLSparse, LinearSolve, BandedMatrices
+Plots, StaticArrays, MKL, BandedMatrices, LinearSolve
 
 # BLAS.get_config()
 # versioninfo()
 # BLAS.get_num_threads()
 BLAS.set_num_threads(12)
-# ps = MKLPardisoSolver()
-# get_nprocs(ps)
 
 # KrylovJL_GMRES()
 # KLUFactorization()
 # KrylovKitJL_GMRES()
 # IterativeSolversJL_GMRES()
-UMFPACKFactorization()
+# UMFPACKFactorization()
 # MKLPardisoFactorize()
 # MKLPardisoIterate()
 
+# ps = MKLPardisoSolver()
+# set_nprocs!(ps, 6)
+# get_nprocs(ps)
 const cs = (
     cache1 = zeros(Float64, 2, 2),
     cache2 = zeros(Float64, 2, 2),
@@ -73,7 +74,6 @@ function montaK!(ne, neq, dx, alpha, beta, EQoLG::Matrix{Int64})
 
     phiP = reduce(hcat, PHI(P)); dphiP = reduce(hcat, dPHI2(P))
 
-
     # println(size(phiP), size(dphiP))
     # Ke = zeros(Float64, 2, 2)
     # cache = similar(Ke)
@@ -95,17 +95,19 @@ function montaK!(ne, neq, dx, alpha, beta, EQoLG::Matrix{Int64})
     
     # S = repeat(reshape(Ke, 4), outer=ne)
     S = repeat(reshape(cs.cache2, 4), outer=ne)
-    
-    
-    Ks = sparse(I, J, S)[1:neq, 1:neq]
 
     K = BandedMatrix(Zeros(neq, neq), (1,1))
 
-    # println("Convertendo")
-    Threads.@threads for coo in findall(!iszero, Ks)
-        K[coo] = Ks[coo]
+    Threads.@threads for (i,j,s) in collect(zip(I,J,S))
+        if i <= neq && j <= neq 
+            K[i,j] += s
+        end
     end
-    # println("Converteu")
+
+    # Ks = sparse(I, J, S)[1:neq, 1:neq]
+    # Threads.@threads for coo in findall(!iszero, Ks)
+    #     K[coo] = Ks[coo]
+    # end
 
     S = nothing; I = nothing; J = nothing
 
@@ -166,24 +168,14 @@ function solveSys(alpha, beta, ne, a, b, f, u)
 
     C = zeros(Float64, neq)
 
-    # println(typeof(K))
-
-    # println("Resolvendo sistema")
-    # C = solve(Symmetric(K), F)
-    
-    # println(typeof(Tridiagonal(K)))
+    # println("Resolvendo sistema")    
     C .= Symmetric(K)\F
-    # cho = cholesky(K)
     # prob = LinearProblem(Symmetric(K), F)
-    # C = solve(prob)
-    # C = solve(ps, K, F)
-    # C = cho\F
+    # C .= solve(prob).u
     # println("Resolvendo sistema: fim")
-    
-
 
     F = nothing; K = nothing;
-    # @show_locals
+
     return C, X, EQoLG
 end
 
@@ -191,6 +183,7 @@ end
 alpha = 1; beta = 1; a = 0; b = 1; ne = 2^23
 f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
 
+println("Rodando")
 @btime begin
     C, X, EQoLG = solveSys(alpha, beta, ne, a, b, f, u)
 
@@ -209,12 +202,13 @@ function convergence_test!(NE, E)
     end
 end
 
-errsize = 23
+errsize = 15
 NE = 2 .^ [2:1:errsize;]
 H = 1 ./NE
 E = zeros(length(NE))
 
-# 9.299s banded
+# 6.103s directly banded
+# 9.299s convert to banded
 # 14.438 not banded
 # @btime begin
 #     convergence_test!(NE, E)
@@ -237,7 +231,7 @@ dx = 1/ne; neq = ne - 1; EQ = montaEQ(ne, neq); LG = montaLG(ne); EQoLG = EQ[LG]
 
 function teste(alpha, beta, ne, a, b, f, u, neq)
 
-    Ke = [1 1; 1 1]
+    Ke = [8.38860800000004e6 -8.38860799999998e6; -8.38860799999998e6 8.38860800000004e6]
     
     # # println(K)
     
@@ -255,17 +249,24 @@ function teste(alpha, beta, ne, a, b, f, u, neq)
     
     S = repeat(reshape(Ke, 4), outer=ne)    
     
-    Ks = sparse(I, J, S)[1:neq, 1:neq]
+    # Ks = sparse(I, J, S)[1:neq, 1:neq]
 
-    # for coo in findall(!iszero, Ks)
-    #     println(Ks[coo])
-    # end
-    # K = BandedMatrix(Zeros(neq, neq), (1,1))
+    K = BandedMatrix(Zeros(neq, neq), (1,1))
+
+    # COO = CartesianIndex.(I,J)
 
     # println("Convertendo")
     # Threads.@threads for coo in findall(!iszero, Ks)
     #     K[coo] = Ks[coo]
     # end
+    
+
+    Threads.@threads for (i,j,s) in collect(zip(I,J,S))
+        if i <= neq && j <= neq 
+            K[i,j] += s
+        end
+    end
+
     # println("Converteu")
 
     # K
