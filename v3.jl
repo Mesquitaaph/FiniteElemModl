@@ -5,10 +5,10 @@ Plots, StaticArrays, MKL, BandedMatrices, LinearSolve
 # BLAS.get_config()
 # versioninfo()
 # BLAS.get_num_threads()
-BLAS.set_num_threads(12)
+BLAS.set_num_threads(24)
 
 # KrylovJL_GMRES()
-# KLUFactorization()
+KLUFactorization()
 # KrylovKitJL_GMRES()
 # IterativeSolversJL_GMRES()
 # UMFPACKFactorization()
@@ -60,10 +60,6 @@ function PHI(P)
 end
 
 function dPHI(P)
-    return [-1/2*(P^0); 1/2*(P^0)]
-end
-
-function dPHI2(P)
     return [-1/2*(P.^0), 1/2*(P.^ 0)]
 end
 
@@ -72,7 +68,7 @@ function montaK!(ne, neq, dx, alpha, beta, EQoLG::Matrix{Int64})
     
     phiP = zeros(Float64, 2, 2); dphiP = zeros(Float64, 2, 2);
 
-    phiP = reduce(hcat, PHI(P)); dphiP = reduce(hcat, dPHI2(P))
+    phiP = reduce(hcat, PHI(P)); dphiP = reduce(hcat, dPHI(P))
 
     # println(size(phiP), size(dphiP))
     # Ke = zeros(Float64, 2, 2)
@@ -134,22 +130,34 @@ function montaF(ne, neq, X, f, EQoLG)
     I = vec(EQoLG')
     F = StatsBase.counts(I, Fe)
 
-    xPTne = nothing; Fe = nothing; I = nothing;
-    return F[1:neq]#, xPTne
+    Fe = nothing; I = nothing;
+    return F[1:neq], xPTne
 end
 
-function erroVet(ne, EQoLG, C, u, X)
-    dx = 1/ne
+function erroVet(ne, EQoLG, C, u, u_x, xPTne)
     npg = 5; P, W = legendre(npg)
-    xPTne = montaxPTne(dx, X[1:end-1]', P)
-    phiP = reduce(hcat, PHI(P))
+    
+    phiP = reduce(hcat, PHI(P)); dphiP = reduce(hcat, dPHI(P))
+
     h = 1/ne
 
-    d = vcat(C, 0)
+    cEQoLG = vcat(C, 0)[EQoLG]
 
-    E = sqrt(h/2 * sum(W' * ((u.(xPTne) - (phiP * d[EQoLG])).^2)))
+    cache1 = zeros(Float64, npg, ne)
+    cache2 = zeros(Float64, 1, ne)
 
-    return E
+    mul!(cache1, phiP, cEQoLG)
+    cache1 .-= u.(xPTne); cache1 .^= 2
+    mul!(cache2, W', cache1)
+    EL2::Float64 = sqrt(h/2 * sum(cache2))
+
+
+    mul!(cache1, dphiP, cEQoLG, 2/h, 1.0)
+    cache1 .-= u_x.(xPTne); cache1 .^= 2
+    mul!(cache2, W', cache1)
+    EH01::Float64 = sqrt(h/2 * sum(cache2))
+
+    return EL2, EH01
 end
 
 function solveSys(alpha, beta, ne, a, b, f, u)
@@ -164,7 +172,7 @@ function solveSys(alpha, beta, ne, a, b, f, u)
 
     K = montaK!(ne, neq, dx, alpha, beta, EQoLG)
 
-    F = montaF(ne, neq, X, f, EQoLG)
+    F, xPTne = montaF(ne, neq, X, f, EQoLG)
 
     C = zeros(Float64, neq)
 
@@ -176,12 +184,12 @@ function solveSys(alpha, beta, ne, a, b, f, u)
 
     F = nothing; K = nothing;
 
-    return C, X, EQoLG
+    return C, EQoLG, xPTne
 end
 
 # 2^25 máximo de elementos que meu pc aguenta: 16GB de RAM
 alpha = 1; beta = 1; a = 0; b = 1; ne = 2^23
-f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
+f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1)); u_x(x) = 1 - (ℯ^(-x) + ℯ^x) *(1/(ℯ - ℯ^(-1)));
 
 println("Rodando")
 # @btime begin
@@ -190,15 +198,15 @@ println("Rodando")
 #     C = nothing; X = nothing; EQoLG = nothing
 # end
 
-function convergence_test!(NE, E)
+function convergence_test!(NE, E, dE)
     alpha = 1; beta = 1; a = 0; b = 1;
-    f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
+    f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1)); u_x(x) = 1 - (ℯ^(-x) + ℯ^x) *(1/(ℯ - ℯ^(-1)));
 
     for i = 1:lastindex(NE)
         # println("Iniciando i = ", i)
         # solveSys(alpha, beta, NE[i], a, b, f, u)
-        Ci, Xi, EQoLGi = solveSys(alpha, beta, NE[i], a, b, f, u)
-        E[i] = erroVet(NE[i], EQoLGi, Ci, u, Xi)
+        Ci, EQoLGi, xPTnei = solveSys(alpha, beta, NE[i], a, b, f, u)
+        E[i], dE[i] = erroVet(NE[i], EQoLGi, Ci, u, u_x, xPTnei)
     end
 end
 
@@ -206,19 +214,20 @@ errsize = 23
 NE = 2 .^ [2:1:errsize;]
 H = 1 ./NE
 E = zeros(length(NE))
+dE = similar(E)
 
 # 6.103s directly banded
 # 9.299s convert to banded
 # 14.438 not banded
 @btime begin
-    convergence_test!(NE, E)
+    convergence_test!(NE, E, dE)
 end
 
 ### Tempo no MatLab: 4.25 segundos NE = [2:2^23]
 
 # size(E)
 plot(H, E, xaxis=:log2, yaxis=:log2)
-# plot!(H, H .^2, xaxis=:log2, yaxis=:log2)
+plot!(H, H .^2, xaxis=:log2, yaxis=:log2)
 # println(E)
 
 # @btime convergence_test(23)
@@ -304,3 +313,9 @@ end
 #     cholesky(K)
 #   end
 # A\b
+
+
+
+
+
+sum([1 2; 3 4], dims=2)
