@@ -142,12 +142,12 @@ function erroVet(ne, EQoLG, C, u, X)
     dx = 1/ne
     npg = 5; P, W = legendre(npg)
     xPTne = montaxPTne(dx, X[1:end-1]', P)
-    phiP = reduce(vcat, PHI(P)')
+    phiP = reduce(hcat, PHI(P))
     h = 1/ne
 
     d = vcat(C, 0)
 
-    E = sqrt(h/2 * sum(W' * ((u.(xPTne) - (phiP' * d[EQoLG])).^2)))
+    E = sqrt(h/2 * sum(W' * ((u.(xPTne) - (phiP * d[EQoLG])).^2)))
 
     return E
 end
@@ -184,11 +184,11 @@ alpha = 1; beta = 1; a = 0; b = 1; ne = 2^23
 f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1))
 
 println("Rodando")
-@btime begin
-    C, X, EQoLG = solveSys(alpha, beta, ne, a, b, f, u)
+# @btime begin
+#     C, X, EQoLG = solveSys(alpha, beta, ne, a, b, f, u)
 
-    C = nothing; X = nothing; EQoLG = nothing
-end
+#     C = nothing; X = nothing; EQoLG = nothing
+# end
 
 function convergence_test!(NE, E)
     alpha = 1; beta = 1; a = 0; b = 1;
@@ -202,7 +202,7 @@ function convergence_test!(NE, E)
     end
 end
 
-errsize = 15
+errsize = 23
 NE = 2 .^ [2:1:errsize;]
 H = 1 ./NE
 E = zeros(length(NE))
@@ -210,9 +210,9 @@ E = zeros(length(NE))
 # 6.103s directly banded
 # 9.299s convert to banded
 # 14.438 not banded
-# @btime begin
-#     convergence_test!(NE, E)
-# end
+@btime begin
+    convergence_test!(NE, E)
+end
 
 ### Tempo no MatLab: 4.25 segundos NE = [2:2^23]
 
