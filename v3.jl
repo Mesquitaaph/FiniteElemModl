@@ -94,7 +94,7 @@ function montaK!(ne, neq, dx, alpha, beta, EQoLG::Matrix{Int64})
 
     K = BandedMatrix(Zeros(neq, neq), (1,1))
 
-    Threads.@threads for (i,j,s) in collect(zip(I,J,S))
+    for (i,j,s) in zip(I,J,S)
         if i <= neq && j <= neq 
             K[i,j] += s
         end
@@ -125,10 +125,15 @@ function montaF(ne, neq, X, f, EQoLG)
 
     Fe = (dx/2 .* W'.*phiP) * f(xPTne)
     
-    Fe = vec(Fe'); Fe = Weights(Fe)
+    # Fe = vec(Fe'); Fe = Weights(Fe)
+    # I = vec(EQoLG')
+    # F = StatsBase.counts(I, Fe)
 
-    I = vec(EQoLG')
-    F = StatsBase.counts(I, Fe)
+    F = zeros(neq+1)
+
+    for (i, fe) in zip(EQoLG, Fe)
+        F[i] += fe
+    end
 
     Fe = nothing; I = nothing;
     return F[1:neq], xPTne
@@ -147,13 +152,16 @@ function erroVet(ne, EQoLG, C, u, u_x, xPTne)
     cache2 = zeros(Float64, 1, ne)
 
     mul!(cache1, phiP, cEQoLG)
-    cache1 .-= u.(xPTne); cache1 .^= 2
+    
+    cache1 .-= u.(xPTne)
+    cache1 .^= 2
     mul!(cache2, W', cache1)
     EL2::Float64 = sqrt(h/2 * sum(cache2))
 
 
     mul!(cache1, dphiP, cEQoLG, 2/h, 1.0)
-    cache1 .-= u_x.(xPTne); cache1 .^= 2
+    cache1 .-= u_x.(xPTne)
+    cache1 .^= 2
     mul!(cache2, W', cache1)
     EH01::Float64 = sqrt(h/2 * sum(cache2))
 
@@ -189,10 +197,10 @@ end
 
 # 2^25 máximo de elementos que meu pc aguenta: 16GB de RAM
 alpha = 1; beta = 1; a = 0; b = 1; ne = 2^23
-f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1)); u_x(x) = 1 - (ℯ^(-x) + ℯ^x) *(1/(ℯ - ℯ^(-1)));
+f(x) = x; u(x) = x + (exp(-x) - exp(x))/(exp(1.0) - exp(-1)); u_x(x) = 1 - (exp(-x) + exp(x)) *(1/(exp(1.0) - exp(-1)));
 
 println("Rodando")
-# @btime begin
+# @profview begin
 #     C, X, EQoLG = solveSys(alpha, beta, ne, a, b, f, u)
 
 #     C = nothing; X = nothing; EQoLG = nothing
@@ -200,7 +208,7 @@ println("Rodando")
 
 function convergence_test!(NE, E, dE)
     alpha = 1; beta = 1; a = 0; b = 1;
-    f(x) = x; u(x) = x + (ℯ^(-x) - ℯ^x)/(ℯ - ℯ^(-1)); u_x(x) = 1 - (ℯ^(-x) + ℯ^x) *(1/(ℯ - ℯ^(-1)));
+    f(x) = x; u(x) = x + (exp(-x) - exp(x))/(exp(1.0) - exp(-1)); u_x(x) = 1 - (exp(-x) + exp(x)) *(1/(exp(1.0) - exp(-1)));
 
     for i = 1:lastindex(NE)
         # println("Iniciando i = ", i)
@@ -219,7 +227,7 @@ dE = similar(E)
 # 6.103s directly banded
 # 9.299s convert to banded
 # 14.438 not banded
-@btime begin
+@profview begin
     convergence_test!(NE, E, dE)
 end
 
@@ -242,17 +250,6 @@ function teste(alpha, beta, ne, a, b, f, u, neq)
 
     Ke = [8.38860800000004e6 -8.38860799999998e6; -8.38860799999998e6 8.38860800000004e6]
     
-    # # println(K)
-    
-    # for e in 1:ne, b in 1:2, a in 1:2
-    #         i = EQoLG[a,e]
-    #         j = EQoLG[b,e]
-    #         if i == ne || j == ne
-    #             continue
-    #         end
-    #         K[i,j] += Ke[a,b]
-    # end
-    
     I = vec(EQoLG[[1,1,2,2], 1:1:ne])
     J = vec(EQoLG[[1,2], repeat(1:1:ne, inner=2)])
     
@@ -260,23 +257,13 @@ function teste(alpha, beta, ne, a, b, f, u, neq)
     
     # Ks = sparse(I, J, S)[1:neq, 1:neq]
 
-    K = BandedMatrix(Zeros(neq, neq), (1,1))
+    K = BandedMatrix(Zeros(neq, neq), (1,1)) 
 
-    # COO = CartesianIndex.(I,J)
-
-    # println("Convertendo")
-    # Threads.@threads for coo in findall(!iszero, Ks)
-    #     K[coo] = Ks[coo]
-    # end
-    
-
-    Threads.@threads for (i,j,s) in collect(zip(I,J,S))
+    for (i,j,s) in collect(zip(I,J,S))
         if i <= neq && j <= neq 
             K[i,j] += s
         end
     end
-
-    # println("Converteu")
 
     # K
 end
@@ -313,9 +300,3 @@ end
 #     cholesky(K)
 #   end
 # A\b
-
-
-
-
-
-sum([1 2; 3 4], dims=2)
