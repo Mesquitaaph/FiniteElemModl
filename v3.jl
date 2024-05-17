@@ -63,7 +63,7 @@ function dPHI(P)
     return [-1/2*(P.^0), 1/2*(P.^ 0)]
 end
 
-function montaK!(ne, neq, dx, alpha, beta, EQoLG::Matrix{Int64})
+function montaK(ne, neq, dx, alpha, beta, EQoLG::Matrix{Int64})
     npg = 2; P, W = legendre(npg)
     
     phiP = zeros(Float64, 2, 2); dphiP = zeros(Float64, 2, 2);
@@ -86,17 +86,16 @@ function montaK!(ne, neq, dx, alpha, beta, EQoLG::Matrix{Int64})
     # Ke = beta*dx/2 .* cs.cache * phiP + 2*alpha/dx .* Ke
 
 
-    I = vec(EQoLG[[1,1,2,2], 1:1:ne])
-    J = vec(EQoLG[[1,2], repeat(1:1:ne, inner=2)])
+    I = vec(@view EQoLG[[1,1,2,2], 1:1:ne])
+    J = vec(@view EQoLG[[1,2], repeat(1:1:ne, inner=2)])
     
-    # S = repeat(reshape(Ke, 4), outer=ne)
-    S = repeat(reshape(cs.cache2, 4), outer=ne)
+    S = repeat(vec(cs.cache2), outer=ne)
 
     K = BandedMatrix(Zeros(neq, neq), (1,1))
 
     for (i,j,s) in zip(I,J,S)
         if i <= neq && j <= neq 
-            K[i,j] += s
+            @inbounds K[i,j] += s
         end
     end
 
@@ -122,8 +121,10 @@ function montaF(ne, neq, X, f, EQoLG)
     dx = 1/ne
 
     xPTne = montaxPTne(dx, X[1:end-1]', P)
+    fxPTne = f.(xPTne)
 
-    Fe = (dx/2 .* W'.*phiP) * f(xPTne)
+    Fe = zeros(Float64, 2, ne)
+    mul!(Fe, dx/2 .* W'.*phiP, fxPTne)
     
     # Fe = vec(Fe'); Fe = Weights(Fe)
     # I = vec(EQoLG')
@@ -178,7 +179,7 @@ function solveSys(alpha, beta, ne, a, b, f, u)
 
     EQ = nothing; LG = nothing;
 
-    K = montaK!(ne, neq, dx, alpha, beta, EQoLG)
+    K = montaK(ne, neq, dx, alpha, beta, EQoLG)
 
     F, xPTne = montaF(ne, neq, X, f, EQoLG)
 
@@ -224,10 +225,7 @@ H = 1 ./NE
 E = zeros(length(NE))
 dE = similar(E)
 
-# 6.103s directly banded
-# 9.299s convert to banded
-# 14.438 not banded
-@profview begin
+@btime begin
     convergence_test!(NE, E, dE)
 end
 
