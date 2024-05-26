@@ -1,4 +1,3 @@
-# using MUMPS, MPI
 using GaussQuadrature, StatsBase, SparseArrays, BenchmarkTools, LinearAlgebra, 
 Plots, StaticArrays, MKL, BandedMatrices, LinearSolve
 
@@ -7,32 +6,41 @@ Plots, StaticArrays, MKL, BandedMatrices, LinearSolve
 # BLAS.get_num_threads()
 BLAS.set_num_threads(24)
 
-# KrylovJL_GMRES()
 KLUFactorization()
-# KrylovKitJL_GMRES()
-# IterativeSolversJL_GMRES()
-# UMFPACKFactorization()
-# MKLPardisoFactorize()
-# MKLPardisoIterate()
 
-# ps = MKLPardisoSolver()
-# set_nprocs!(ps, 6)
-# get_nprocs(ps)
 const cs = (
     cache1 = zeros(Float64, 2, 2),
     cache2 = zeros(Float64, 2, 2),
     cache3 = zeros(Float64, 2, 2)
 )
 
-macro show_locals()
-    quote 
-        locals = Base.@locals
-        println("\nIndividual sizes (does not account for overlap):")
-        for (name, refval) in locals
-            println("\t$name: $(Base.format_bytes(Base.summarysize(refval)))")
-        end
-        print("Joint size: ")
-        println("$(Base.format_bytes(Base.summarysize(values(locals))))\n")
+function Example(alpha, beta, a, b, u, u_x, f)
+    return (alpha = alpha, beta = beta, a = a, b = b, u = u, u_x = u_x, f = f)
+end
+
+function example1()
+    alpha = 1.0; beta = 1.0; a = 0.0; b = 1.0;
+    u(x) = x + (exp(-x) - exp(x))/(exp(1.0) - exp(-1));
+    u_x(x) = 1 - (exp(-x) + exp(x)) *(1/(exp(1.0) - exp(-1)));
+    f(x) = x
+
+    return Example(alpha, beta, a, b, u, u_x, f)
+end
+
+function example2()
+    alpha = pi; beta = exp(1.0); a = 0.0; b = 1.0;
+    u(x) = sin(pi*x);
+    u_x(x) = cos(pi*x)*pi; u_xx(x) = -sin(pi*x)*pi^2;
+    f(x) = -alpha*u_xx(x) + beta*u(x)
+
+    return Example(alpha, beta, a, b, u, u_x, f)
+end
+
+function examples(case)
+    if case == 1
+        return example1()
+    elseif case == 2
+        return example2()
     end
 end
 
@@ -43,7 +51,6 @@ function montaLG(ne)
 
     LG[:,1] .= LG1
     LG[:,2] .= LG1.+1
-
     
     return LG'
 end
@@ -70,21 +77,11 @@ function montaK(ne, neq, dx, alpha, beta, EQoLG::Matrix{Int64})
 
     phiP = reduce(hcat, PHI(P)); dphiP = reduce(hcat, dPHI(P))
 
-    # println(size(phiP), size(dphiP))
-    # Ke = zeros(Float64, 2, 2)
-    # cache = similar(Ke)
-
     cs.cache1 .= W.*dphiP'
     mul!(cs.cache2, cs.cache1, dphiP)
     cs.cache1 .= W.*phiP'
     
     mul!(cs.cache2, cs.cache1, phiP, beta*dx/2, 2*alpha/dx)
-
-    # Ke = 2*alpha/dx .* (W.*dphiP') * dphiP + beta*dx/2 .* (W.*phiP') * phiP
-    # Ke = 2*alpha/dx .* cs.cache * dphiP + beta*dx/2 .* (W.*phiP') * phiP
-    # Ke = 2*alpha/dx .* Ke + beta*dx/2 .* cs.cache * phiP
-    # Ke = beta*dx/2 .* cs.cache * phiP + 2*alpha/dx .* Ke
-
 
     I = vec(@view EQoLG[[1,1,2,2], 1:1:ne])
     J = vec(@view EQoLG[[1,2], repeat(1:1:ne, inner=2)])
@@ -99,11 +96,6 @@ function montaK(ne, neq, dx, alpha, beta, EQoLG::Matrix{Int64})
         end
     end
 
-    # Ks = sparse(I, J, S)[1:neq, 1:neq]
-    # Threads.@threads for coo in findall(!iszero, Ks)
-    #     K[coo] = Ks[coo]
-    # end
-
     S = nothing; I = nothing; J = nothing
 
     return K
@@ -113,7 +105,7 @@ function montaxPTne(dx, X, P)
     return (dx ./ 2) .* (P .+ 1) .+ X
 end
 
-function montaF(ne, neq, X, f, EQoLG)
+function montaF(ne, neq, X, f::Function, EQoLG)
     npg = 5; P, W = legendre(npg)
 
     phiP = reduce(vcat, PHI(P)')#; dphiP = hcat(dPHI.(P)...)
@@ -121,14 +113,15 @@ function montaF(ne, neq, X, f, EQoLG)
     dx = 1/ne
 
     xPTne = montaxPTne(dx, X[1:end-1]', P)
-    fxPTne = f.(xPTne)
+    # fxPTne = f.(xPTne)
+    fxPTne = similar(xPTne)
+
+    Threads.@threads for i in eachindex(xPTne)
+        fxPTne[i] = f(xPTne[i])
+    end
 
     Fe = zeros(Float64, 2, ne)
     mul!(Fe, dx/2 .* W'.*phiP, fxPTne)
-    
-    # Fe = vec(Fe'); Fe = Weights(Fe)
-    # I = vec(EQoLG')
-    # F = StatsBase.counts(I, Fe)
 
     F = zeros(neq+1)
 
@@ -136,7 +129,7 @@ function montaF(ne, neq, X, f, EQoLG)
         F[i] += fe
     end
 
-    Fe = nothing; I = nothing;
+    Fe = nothing;
     return F[1:neq], xPTne
 end
 
@@ -152,13 +145,11 @@ function erroVet(ne, EQoLG, C, u, u_x, xPTne)
     cache1 = zeros(Float64, npg, ne)
     cache2 = zeros(Float64, 1, ne)
 
-    mul!(cache1, phiP, cEQoLG)
-    
+    mul!(cache1, phiP, cEQoLG)    
     cache1 .-= u.(xPTne)
     cache1 .^= 2
     mul!(cache2, W', cache1)
     EL2::Float64 = sqrt(h/2 * sum(cache2))
-
 
     mul!(cache1, dphiP, cEQoLG, 2/h, 1.0)
     cache1 .-= u_x.(xPTne)
@@ -185,10 +176,8 @@ function solveSys(alpha, beta, ne, a, b, f, u)
 
     C = zeros(Float64, neq)
 
-    # println("Resolvendo sistema")    
+    # println("Resolvendo sistema")
     C .= Symmetric(K)\F
-    # prob = LinearProblem(Symmetric(K), F)
-    # C .= solve(prob).u
     # println("Resolvendo sistema: fim")
 
     F = nothing; K = nothing;
@@ -196,24 +185,18 @@ function solveSys(alpha, beta, ne, a, b, f, u)
     return C, EQoLG, xPTne
 end
 
-# 2^25 máximo de elementos que meu pc aguenta: 16GB de RAM
-alpha = 1; beta = 1; a = 0; b = 1; ne = 2^23
-f(x) = x; u(x) = x + (exp(-x) - exp(x))/(exp(1.0) - exp(-1)); u_x(x) = 1 - (exp(-x) + exp(x)) *(1/(exp(1.0) - exp(-1)));
-
 println("Rodando")
-# @profview begin
+# @btime begin
+#     alpha, beta, a, b, u, u_x, f = examples(1); ne = 2^23
 #     C, X, EQoLG = solveSys(alpha, beta, ne, a, b, f, u)
 
 #     C = nothing; X = nothing; EQoLG = nothing
 # end
 
-function convergence_test!(NE, E, dE)
-    alpha = 1; beta = 1; a = 0; b = 1;
-    f(x) = x; u(x) = x + (exp(-x) - exp(x))/(exp(1.0) - exp(-1)); u_x(x) = 1 - (exp(-x) + exp(x)) *(1/(exp(1.0) - exp(-1)));
+function convergence_test!(NE, E, dE, example)
+    alpha, beta, a, b, u, u_x, f = examples(example)
 
     for i = 1:lastindex(NE)
-        # println("Iniciando i = ", i)
-        # solveSys(alpha, beta, NE[i], a, b, f, u)
         Ci, EQoLGi, xPTnei = solveSys(alpha, beta, NE[i], a, b, f, u)
         E[i], dE[i] = erroVet(NE[i], EQoLGi, Ci, u, u_x, xPTnei)
     end
@@ -225,48 +208,73 @@ H = 1 ./NE
 E = zeros(length(NE))
 dE = similar(E)
 
-@btime begin
-    convergence_test!(NE, E, dE)
-end
+# @profview convergence_test!(NE, E, dE, 2)
+@btime convergence_test!(NE, E, dE, 2)
 
-### Tempo no MatLab: 4.25 segundos NE = [2:2^23]
-
-# size(E)
-plot(H, E, xaxis=:log2, yaxis=:log2)
-plot!(H, H .^2, xaxis=:log2, yaxis=:log2)
-# println(E)
-
-# @btime convergence_test(23)
+plot(H, E, xaxis=:log2, yaxis=:log2); plot!(H, H .^2, xaxis=:log2, yaxis=:log2)
 
 GC.gc()
 
 ############ TESTES ############
 
-dx = 1/ne; neq = ne - 1; EQ = montaEQ(ne, neq); LG = montaLG(ne); EQoLG = EQ[LG]; EQoLGT = EQoLG'
+# dx = 1/ne; neq = ne - 1; EQ = montaEQ(ne, neq); LG = montaLG(ne); EQoLG = EQ[LG]; EQoLGT = EQoLG'
 
-function teste(alpha, beta, ne, a, b, f, u, neq)
+function brodcast_seq()
+    ne = 2^23
+    alpha, beta, a, b, u, u_x, f = examples(2)
 
-    Ke = [8.38860800000004e6 -8.38860799999998e6; -8.38860799999998e6 8.38860800000004e6]
-    
-    I = vec(EQoLG[[1,1,2,2], 1:1:ne])
-    J = vec(EQoLG[[1,2], repeat(1:1:ne, inner=2)])
-    
-    S = repeat(reshape(Ke, 4), outer=ne)    
-    
-    # Ks = sparse(I, J, S)[1:neq, 1:neq]
+    npg = 5; P, W = legendre(npg)
+    dx = 1/ne
+    X = a:dx:b
 
-    K = BandedMatrix(Zeros(neq, neq), (1,1)) 
+    xPTne = montaxPTne(dx, X[1:end-1]', P)
+    fxPTne = f.(xPTne)
 
-    for (i,j,s) in collect(zip(I,J,S))
-        if i <= neq && j <= neq 
-            K[i,j] += s
-        end
-    end
-
-    # K
+    nothing
 end
 
-# @btime teste(alpha, beta, ne, a, b, f, u, neq)
+function brodcast_prll1()
+    ne = 2^23
+    alpha, beta, a, b, u, u_x, f = examples(2)
+
+    npg = 5; P, W = legendre(npg)
+    dx = 1/ne
+    X = a:dx:b
+
+    xPTne = montaxPTne(dx, X[1:end-1]', P)
+
+    Threads.@threads for i in eachindex(xPTne)
+        @inbounds xPTne[i] = f(xPTne[i])
+    end
+
+    nothing
+end
+
+function brodcast_prll2()
+    ne = 2^23
+    alpha, beta, a, b, u, u_x, f = examples(2)
+
+    npg = 5; P, W = legendre(npg)
+    dx = 1/ne
+    X = a:dx:b
+
+    xPTne = montaxPTne(dx, X[1:end-1], P')
+
+    # fxPTne = similar(xPTne)
+
+    # Threads.@threads for i in 1:(size(xPTne)[2])
+    #     fxPTne[:,i] .= f.(xPTne[:,i])
+    # end
+
+    nothing
+end
+
+# @btime brodcast_seq()
+
+# @btime brodcast_prll1()
+
+# @btime brodcast_prll2()
+
 # EQoLG
 # BandedMatrix(Zeros(neq+1, neq+1), (1,1))
 
@@ -287,14 +295,5 @@ end
 
 # @btime teste1(alpha, beta, ne, a, b, f, u, neq)
 
-# K = montaK!(ne, neq, dx, alpha, beta, EQoLG)
-# b = rand(2^22-1)
-# # prob = LinearProblem(A, b)
-
-# for alg in [UMFPACKFactorization()
-#     #, MKLPardisoFactorize(), MKLPardisoIterate()
-#     ]
-#     println(alg)
-#     cholesky(K)
-#   end
-# A\b
+# K = montaK(ne, neq, dx, alpha, beta, EQoLG)
+# b = rand(neq)
