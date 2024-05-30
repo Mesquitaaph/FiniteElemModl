@@ -8,10 +8,11 @@ BLAS.set_num_threads(24)
 
 KLUFactorization()
 
+const base = 3
 const cs = (
-    cache1 = zeros(Float64, 2, 2),
-    cache2 = zeros(Float64, 2, 2),
-    cache3 = zeros(Float64, 2, 2)
+    cache1 = zeros(Float64, base, base),
+    cache2 = zeros(Float64, base, base),
+    cache3 = zeros(Float64, base, base)
 )
 
 function Example(alpha, beta, a, b, u, u_x, f)
@@ -44,60 +45,65 @@ function examples(case)
     end
 end
 
-function montaLG(ne)
-    LG1 = 1:1:ne
+function montaLG(ne, base)
+    LG = zeros(Int64, ne, base)
 
-    LG = zeros(Int64, ne, 2)
-
-    LG[:,1] .= LG1
-    LG[:,2] .= LG1.+1
+    LG1 = [(base-1)*i - (base-2) for i in 1:ne]
     
+    for a in 1:base
+        LG[:,a] .= LG1 .+ (a-1)
+    end
+
     return LG'
 end
 
-function montaEQ(ne, neq)
-    EQ = zeros(Int64, ne+1, 1) .+ ne
-    EQ[2:ne] .= 1:1:neq
+function montaEQ(ne, neq, base)
+    EQ = zeros(Int64, (base-1)*ne+1, 1) .+ (neq+1)
+    EQ[2:end-1] .= 1:1:neq
 
     return EQ
 end
 
-function PHI(P)
-    # return [(-1*P.+1)./2, (P.+1)./2]
-    return [(P.-1).*P./2, 
-            (1 .-P)*(1 .+P),
-            (1 .+P).*P./2]
+function PHI(P, base)
+    if base == 2
+        return [(-1*P.+1)./2, (P.+1)./2]
+    elseif base == 3
+        return [(P.-1).*P./2, 
+                (1 .-P).*(1 .+P),
+                (1 .+P).*P./2]
+    end
 end
 
-function dPHI(P)
-    # return [-1/2*(P.^0), 1/2*(P.^ 0)]
-    return [ P .- 1/2, 
-            -2 .*P,
-             P .+1/2]
+function dPHI(P, base)
+    if base == 2
+        return [-1/2*(P.^0), 1/2*(P.^ 0)]
+    elseif base == 3
+        return [ P .- 1/2, 
+                -2 .*P,
+                P .+1/2]
+    end
 end
 
-function montaK(ne, neq, dx, alpha, beta, EQoLG::Matrix{Int64})
-    npg = 2; P, W = legendre(npg)
-    
-    phiP = zeros(Float64, 2, 2); dphiP = zeros(Float64, 2, 2);
+function montaK(base, ne, neq, dx, alpha, beta, EQoLG::Matrix{Int64})
+    npg = base; P, W = legendre(npg)
 
-    phiP = reduce(hcat, PHI(P)); dphiP = reduce(hcat, dPHI(P))
+    phiP = reduce(hcat, PHI(P, base))'; dphiP = reduce(hcat, dPHI(P, base))'
 
-    cs.cache1 .= W.*dphiP'
-    mul!(cs.cache2, cs.cache1, dphiP)
-    cs.cache1 .= W.*phiP'
+    cs.cache1 .= W'.*dphiP
+    mul!(cs.cache2, cs.cache1, dphiP')
+    cs.cache1 .= W'.*phiP
     
-    mul!(cs.cache2, cs.cache1, phiP, beta*dx/2, 2*alpha/dx)
+    mul!(cs.cache2, cs.cache1, phiP', beta*dx/2, 2*alpha/dx)
 
-    I = vec(@view EQoLG[[1,1,2,2], 1:1:ne])
-    J = vec(@view EQoLG[[1,2], repeat(1:1:ne, inner=2)])
-    
+    base_idxs = 1:base
+
+    I = vec(@view EQoLG[repeat(1:base, inner=base), 1:1:ne])
+    J = vec(@view EQoLG[base_idxs, repeat(1:1:ne, inner=base)])
     S = repeat(vec(cs.cache2), outer=ne)
 
-    K = BandedMatrix(Zeros(neq, neq), (1,1))
-
+    K = BandedMatrix(Zeros(neq, neq), (base-1, base-1))
     for (i,j,s) in zip(I,J,S)
-        if i <= neq && j <= neq 
+        if i <= neq && j <= neq
             @inbounds K[i,j] += s
         end
     end
@@ -111,10 +117,10 @@ function montaxPTne(dx, X, P)
     return (dx ./ 2) .* (P .+ 1) .+ X
 end
 
-function montaF(ne, neq, X, f::Function, EQoLG)
+function montaF(base, ne, neq, X, f::Function, EQoLG)
     npg = 5; P, W = legendre(npg)
 
-    phiP = reduce(vcat, PHI(P)')#; dphiP = hcat(dPHI.(P)...)
+    phiP = reduce(vcat, PHI(P, base)')#; dphiP = hcat(dPHI.(P)...)
     
     dx = 1/ne
 
@@ -126,7 +132,7 @@ function montaF(ne, neq, X, f::Function, EQoLG)
         fxPTne[i] = f(xPTne[i])
     end
 
-    Fe = zeros(Float64, 2, ne)
+    Fe = zeros(Float64, base, ne)
     mul!(Fe, dx/2 .* W'.*phiP, fxPTne)
 
     F = zeros(neq+1)
@@ -139,10 +145,10 @@ function montaF(ne, neq, X, f::Function, EQoLG)
     return F[1:neq], xPTne
 end
 
-function erroVet(ne, EQoLG, C, u, u_x, xPTne)
+function erroVet(base, ne, EQoLG, C, u, u_x, xPTne)
     npg = 5; P, W = legendre(npg)
     
-    phiP = reduce(hcat, PHI(P)); dphiP = reduce(hcat, dPHI(P))
+    phiP = reduce(hcat, PHI(P, base)); dphiP = reduce(hcat, dPHI(P, base))
 
     h = 1/ne
 
@@ -151,11 +157,13 @@ function erroVet(ne, EQoLG, C, u, u_x, xPTne)
     cache1 = zeros(Float64, npg, ne)
     cache2 = zeros(Float64, 1, ne)
 
-    mul!(cache1, phiP, cEQoLG)    
+    mul!(cache1, phiP, cEQoLG)    # phiP * vcat(C, 0)[EQoLG]
     cache1 .-= u.(xPTne)
     cache1 .^= 2
     mul!(cache2, W', cache1)
     EL2::Float64 = sqrt(h/2 * sum(cache2))
+
+    # E = sqrt(h/2 * sum(W' * ((u.(xPTne) - (phiP' * d[EQoLG])).^2)))
 
     mul!(cache1, dphiP, cEQoLG, 2/h, 1.0)
     cache1 .-= u_x.(xPTne)
@@ -166,19 +174,20 @@ function erroVet(ne, EQoLG, C, u, u_x, xPTne)
     return EL2, EH01
 end
 
-function solveSys(alpha, beta, ne, a, b, f, u)
-    dx = 1/ne; neq = ne-1
+function solveSys(base, alpha, beta, ne, a, b, f, u)
+    dx = 1/ne;
+    neq = (base-1)*ne - 1;
 
     X = a:dx:b
     
-    EQ = montaEQ(ne, neq); LG = montaLG(ne)
+    EQ = montaEQ(ne, neq, base); LG = montaLG(ne, base)
     EQoLG = EQ[LG]
 
     EQ = nothing; LG = nothing;
 
-    K = montaK(ne, neq, dx, alpha, beta, EQoLG)
+    K = montaK(base, ne, neq, dx, alpha, beta, EQoLG)
 
-    F, xPTne = montaF(ne, neq, X, f, EQoLG)
+    F, xPTne = montaF(base, ne, neq, X, f, EQoLG)
 
     C = zeros(Float64, neq)
 
@@ -191,20 +200,27 @@ function solveSys(alpha, beta, ne, a, b, f, u)
     return C, EQoLG, xPTne
 end
 
-println("Rodando")
-# @btime begin
-#     alpha, beta, a, b, u, u_x, f = examples(1); ne = 2^23
-#     C, X, EQoLG = solveSys(alpha, beta, ne, a, b, f, u)
+println("Rodando \n")
+# let
+#     alpha, beta, a, b, u, u_x, f = examples(2); ne = 2^2
+#     C, EQoLG, xPTne = solveSys(base, alpha, beta, ne, a, b, f, u)
+#     X = vcat(a:(1/ne):b)[2:end]
+#     # C = nothing; X = nothing; EQoLG = nothing
+#     npg = 5; P, W = legendre(npg)
 
-#     C = nothing; X = nothing; EQoLG = nothing
+#     phiP = reduce(hcat, PHI(P, base));
+
+#     d = phiP * vcat(C, 0)[EQoLG]
+
+#     plot(xPTne, d); plot!(xPTne, u.(xPTne))
 # end
 
 function convergence_test!(NE, E, dE, example)
     alpha, beta, a, b, u, u_x, f = examples(example)
 
     for i = 1:lastindex(NE)
-        Ci, EQoLGi, xPTnei = solveSys(alpha, beta, NE[i], a, b, f, u)
-        E[i], dE[i] = erroVet(NE[i], EQoLGi, Ci, u, u_x, xPTnei)
+        Ci, EQoLGi, xPTnei = solveSys(base, alpha, beta, NE[i], a, b, f, u)
+        E[i], dE[i] = erroVet(base, NE[i], EQoLGi, Ci, u, u_x, xPTnei)
     end
 end
 
@@ -215,15 +231,15 @@ E = zeros(length(NE))
 dE = similar(E)
 
 # @profview convergence_test!(NE, E, dE, 2)
-# @btime convergence_test!(NE, E, dE, 2)
+@btime convergence_test!(NE, E, dE, 2)
 
-plot(H, E, xaxis=:log2, yaxis=:log2); plot!(H, H .^2, xaxis=:log2, yaxis=:log2)
+plot(H, E, xaxis=:log2, yaxis=:log2); plot!(H, H .^3, xaxis=:log2, yaxis=:log2)
 
 GC.gc()
 
 ############ TESTES ############
 
-ne = 2^3; dx = 1/ne; neq = ne - 1;
+ne = 2^2; dx = 1/ne;
 
 # EQoLG
 # BandedMatrix(Zeros(neq+1, neq+1), (1,1))
@@ -234,20 +250,27 @@ ne = 2^3; dx = 1/ne; neq = ne - 1;
 #     K[i,j] = Ks[i,j]
 # end
 
-function teste1(ne, neq)
-    LG = montaLG(ne)
-    EQ = montaEQ(ne, neq)
+function teste1(ne)
+    base = 3; neq = (base-1)*ne - 1;
+
+    LG = montaLG(ne, base)
+    # println(LG)
+
+    EQ = montaEQ(ne, neq, base)
+    # println(EQ)
 
     EQoLG = EQ[LG]
-
-    println(LG)
-    println(EQ)
+    
+    EQoLG1 = [vcat(neq+1, 2:2:neq-1); 1:2:neq; vcat(2:2:neq-1,neq+1)]
     println(EQoLG)
+    println(EQoLG1)
 
     nothing
 end
 
-teste1(ne, neq)
+# teste1(ne)
 
 # K = montaK(ne, neq, dx, alpha, beta, EQoLG)
 # b = rand(neq)
+# base = 3
+# [(base-1)*i - (base-2) for i in 1:ne]
