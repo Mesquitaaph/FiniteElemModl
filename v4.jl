@@ -8,13 +8,6 @@ BLAS.set_num_threads(24)
 
 KLUFactorization()
 
-const base = 3
-const cs = (
-    cache1 = zeros(Float64, base, base),
-    cache2 = zeros(Float64, base, base),
-    cache3 = zeros(Float64, base, base)
-)
-
 function Example(alpha, beta, a, b, u, u_x, f)
     return (alpha = alpha, beta = beta, a = a, b = b, u = u, u_x = u_x, f = f)
 end
@@ -88,18 +81,19 @@ function montaK(base, ne, neq, dx, alpha, beta, EQoLG::Matrix{Int64})
     npg = base; P, W = legendre(npg)
 
     phiP = reduce(hcat, PHI(P, base))'; dphiP = reduce(hcat, dPHI(P, base))'
+    cache1 = zeros(Float64, base, base); cache2 = similar(cache1); cache3 = similar(cache1)
 
-    cs.cache1 .= W'.*dphiP
-    mul!(cs.cache2, cs.cache1, dphiP')
-    cs.cache1 .= W'.*phiP
+    cache1 .= W'.*dphiP
+    mul!(cache2, cache1, dphiP')
+    cache1 .= W'.*phiP
     
-    mul!(cs.cache2, cs.cache1, phiP', beta*dx/2, 2*alpha/dx)
+    mul!(cache2, cache1, phiP', beta*dx/2, 2*alpha/dx)
 
     base_idxs = 1:base
 
     I = vec(@view EQoLG[repeat(1:base, inner=base), 1:1:ne])
     J = vec(@view EQoLG[base_idxs, repeat(1:1:ne, inner=base)])
-    S = repeat(vec(cs.cache2), outer=ne)
+    S = repeat(vec(cache2), outer=ne)
 
     K = BandedMatrix(Zeros(neq, neq), (base-1, base-1))
     for (i,j,s) in zip(I,J,S)
@@ -120,7 +114,7 @@ end
 function montaF(base, ne, neq, X, f::Function, EQoLG)
     npg = 5; P, W = legendre(npg)
 
-    phiP = reduce(vcat, PHI(P, base)')#; dphiP = hcat(dPHI.(P)...)
+    phiP = reduce(vcat, PHI(P, base)')
     
     dx = 1/ne
 
@@ -202,7 +196,7 @@ end
 
 println("Rodando \n")
 # let
-#     alpha, beta, a, b, u, u_x, f = examples(2); ne = 2^2
+#     alpha, beta, a, b, u, u_x, f = examples(2); ne = 2^2; base = 3
 #     C, EQoLG, xPTne = solveSys(base, alpha, beta, ne, a, b, f, u)
 #     X = vcat(a:(1/ne):b)[2:end]
 #     # C = nothing; X = nothing; EQoLG = nothing
@@ -215,7 +209,7 @@ println("Rodando \n")
 #     plot(xPTne, d); plot!(xPTne, u.(xPTne))
 # end
 
-function convergence_test!(NE, E, dE, example)
+function convergence_test!(base, NE, E, dE, example)
     alpha, beta, a, b, u, u_x, f = examples(example)
 
     for i = 1:lastindex(NE)
@@ -229,11 +223,12 @@ NE = 2 .^ [2:1:errsize;]
 H = 1 ./NE
 E = zeros(length(NE))
 dE = similar(E)
+base = 2
 
 # @profview convergence_test!(NE, E, dE, 2)
-@btime convergence_test!(NE, E, dE, 2)
+@btime convergence_test!(base, NE, E, dE, 2)
 
-plot(H, E, xaxis=:log2, yaxis=:log2); plot!(H, H .^3, xaxis=:log2, yaxis=:log2)
+plot(H, E, xaxis=:log2, yaxis=:log2); plot!(H, H .^base, xaxis=:log2, yaxis=:log2)
 
 GC.gc()
 
