@@ -64,6 +64,11 @@ function PHI(P, base)
         return [(P.-1).*P./2, 
                 (1 .-P).*(1 .+P),
                 (1 .+P).*P./2]
+    elseif base == 4
+        return [ (9/16)*(1 .- P).*(P .+ (1/3)).*(P .- (1/3)),
+                (27/16)*(1 .+ P).*(P .- (1/3)).*(P .- 1),
+                (27/16)*(1 .- P).*(P .+ (1/3)).*(P .+ 1),
+                 (9/16)*(1 .+ P).*(P .+ (1/3)).*(P .- (1/3))]
     end
 end
 
@@ -74,6 +79,11 @@ function dPHI(P, base)
         return [ P .- 1/2, 
                 -2 .*P,
                 P .+1/2]
+    elseif base == 4
+        return [ (1/16)*(9   *(2  .- 3*P).*P .+ 1),
+                 (9/16)*(  P.*(9*P.- 2) .- 3),
+                (-9/16)*(  P.*(9*P.+ 2) .- 3),
+                 (1/16)*(9*P.*(3*P.+ 2) .- 1)]
     end
 end
 
@@ -224,14 +234,17 @@ NE = 2 .^ [2:1:errsize;]
 H = 1 ./NE
 E = zeros(length(NE))
 dE = similar(E)
-base = 2
+base = 4
+exemplo = 2
 
 # @profview convergence_test!(NE, E, dE, 2)
-@btime convergence_test!(base, NE, E, dE, 2)
+@btime convergence_test!(base, NE, E, dE, exemplo)
 
 plot(H, E, xaxis=:log2, yaxis=:log2); plot!(H, H .^base, xaxis=:log2, yaxis=:log2)
 
 GC.gc()
+
+# plot(-1:0.01:1, PHI(-1:0.01:1, 4))
 
 ############ TESTES ############
 
