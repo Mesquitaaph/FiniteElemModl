@@ -81,12 +81,13 @@ function montaK(base, ne, neq, dx, alpha, beta, EQoLG::Matrix{Int64})
     npg = base; P, W = legendre(npg)
 
     phiP = reduce(hcat, PHI(P, base))'; dphiP = reduce(hcat, dPHI(P, base))'
-    cache1 = zeros(Float64, base, base); cache2 = similar(cache1); cache3 = similar(cache1)
+
+    cache1 = zeros(Float64, base, base); cache2 = similar(cache1);
 
     cache1 .= W'.*dphiP
     mul!(cache2, cache1, dphiP')
-    cache1 .= W'.*phiP
-    
+
+    cache1 .= W'.*phiP    
     mul!(cache2, cache1, phiP', beta*dx/2, 2*alpha/dx)
 
     base_idxs = 1:base
