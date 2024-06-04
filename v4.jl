@@ -240,7 +240,7 @@ exemplo = 2
 # @profview convergence_test!(NE, E, dE, 2)
 @btime convergence_test!(base, NE, E, dE, exemplo)
 
-plot(H, E, xaxis=:log2, yaxis=:log2); plot!(H, H .^base, xaxis=:log2, yaxis=:log2)
+plot(H, E, xaxis=:log10, yaxis=:log10); plot!(H, H .^base, xaxis=:log10, yaxis=:log10)
 
 GC.gc()
 
