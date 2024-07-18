@@ -73,7 +73,7 @@ function montaEQSerial(ne, neq, base)
     EQ[1] = neq+1; EQ[end] = neq+1
     
     for i in 2:(base-1)*ne
-        EQ[i] = i-1
+        @inbounds EQ[i] = i-1
     end
 
     return EQ
@@ -91,6 +91,21 @@ function PHI(P, base)
                 (27/16)*(1 .+ P).*(P .- (1/3)).*(P .- 1),
                 (27/16)*(1 .- P).*(P .+ (1/3)).*(P .+ 1),
                  (9/16)*(1 .+ P).*(P .+ (1/3)).*(P .- (1/3))]
+    end
+end
+
+function PHISerial(P, base)
+    if base == 2
+        return [(-1*P+1)/2, (P+1)/2]
+    # elseif base == 3
+    #     return [(P.-1).*P./2, 
+    #             (1 .-P).*(1 .+P),
+    #             (1 .+P).*P./2]
+    # elseif base == 4
+    #     return [ (9/16)*(1 .- P).*(P .+ (1/3)).*(P .- (1/3)),
+    #             (27/16)*(1 .+ P).*(P .- (1/3)).*(P .- 1),
+    #             (27/16)*(1 .- P).*(P .+ (1/3)).*(P .+ 1),
+    #              (9/16)*(1 .+ P).*(P .+ (1/3)).*(P .- (1/3))]
     end
 end
 
