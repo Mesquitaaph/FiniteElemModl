@@ -8,6 +8,38 @@ BLAS.set_num_threads(24)
 
 KLUFactorization()
 
+# struct LocalBase
+#     type:: String
+#     p:: Integer
+#     nB:: Integer
+#     neq:: Integer
+# end
+
+# struct BaseTypes
+#     linearLagrange::LocalBase
+#     quadraticLagrange::LocalBase
+#     cubicLagrange::LocalBase
+#     cubicHermite::LocalBase
+# end
+
+# bases = BaseTypes("Lag1", "Lag2", "Lag3", "Her3")
+
+const BaseTypes = (
+    linearLagrange = "Lag1",
+    quadraticLagrange = "Lag2",
+    cubicLagrange = "Lag3",
+    cubicHermite = "Her3",
+)
+
+const LocalBases = (
+    Lag1 = (ne) -> (type = BaseTypes.linearLagrange, p = 1, nB = 2, neq = ne - 1),
+    Lag2 = (ne) -> (type = BaseTypes.quadraticLagrange, p = 2, nB = 3, neq = 2*ne - 1),
+    Lag3 = (ne) -> (type = BaseTypes.cubicLagrange, p = 3, nB = 4, neq = 3*ne - 1),
+    Her3 = (ne) -> (type = BaseTypes.cubicHermite, p = 3, nB = 4, neq = 2*ne)
+)
+
+LocalBases[Symbol(BaseTypes.linearLagrange)](4)
+
 function Example(alpha, beta, a, b, u, u_x, f)
     return (alpha = alpha, beta = beta, a = a, b = b, u = u, u_x = u_x, f = f)
 end
@@ -238,7 +270,7 @@ base = 4
 exemplo = 2
 
 # @profview convergence_test!(NE, E, dE, 2)
-@btime convergence_test!(base, NE, E, dE, exemplo)
+# @btime convergence_test!(base, NE, E, dE, exemplo)
 
 plot(H, E, xaxis=:log10, yaxis=:log10); plot!(H, H .^base, xaxis=:log10, yaxis=:log10)
 
