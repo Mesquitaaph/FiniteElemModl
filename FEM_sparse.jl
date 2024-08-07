@@ -3,7 +3,7 @@ Plots, StaticArrays, MKL, LinearSolve
 
 BLAS.set_num_threads(24)
 
-KLUFactorization()
+# KLUFactorization()
 
 const cs = (
     cache1 = zeros(Float64, 2, 2),
@@ -140,13 +140,13 @@ function solveSys(alpha, beta, ne, a, b, f, u)
 end
 
 # Montagem do sistema e sua resolução
-# @benchmark begin
-#     alpha = pi; beta = exp(1); a = 0; b = 1; ne = 2^23
-#     u(x) = sin(pi*x); u_x(x) = cos(pi*x)*pi; u_xx(x) = -sin(pi*x)*pi^2; f(x) = -alpha*u_xx(x) + beta*u(x);
-#     C, X, EQoLG = solveSys(alpha, beta, ne, a, b, f, u)
+@btime begin
+    alpha = pi; beta = exp(1); a = 0; b = 1; ne = 2^23
+    u(x) = sin(pi*x); u_x(x) = cos(pi*x)*pi; u_xx(x) = -sin(pi*x)*pi^2; f(x) = -alpha*u_xx(x) + beta*u(x);
+    C, X, EQoLG = solveSys(alpha, beta, ne, a, b, f, u)
 
-#     C = nothing; X = nothing; EQoLG = nothing
-# end
+    C = nothing; X = nothing; EQoLG = nothing
+end
 
 
 function convergence_test!(NE, E, dE)
@@ -165,7 +165,7 @@ H = 1 ./NE
 E = zeros(length(NE))
 dE = similar(E)
 
-@btime convergence_test!(NE, E, dE)
+# @btime convergence_test!(NE, E, dE)
 
 # plot(H, E, xaxis=:log2, yaxis=:log2)
 # plot!(H, H .^2, xaxis=:log2, yaxis=:log2)
