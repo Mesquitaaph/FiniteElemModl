@@ -43,8 +43,8 @@ end
 
 function example3()
     alpha = 1.0; beta = 1.0; gamma = 1.0; a = 0.0; b = 1.0;
-    u(x) = x^2 + exp(-x);
-    u_x(x) = 2*x - exp(-x); u_xx(x) = 2 + exp(-x);
+    u(x) = 4*(x - 1/2)^2 - 1;
+    u_x(x) = 8*(x - 1/2); u_xx(x) = 8;
     f(x) = -alpha*u_xx(x) + gamma*u_x(x) + beta*u(x)
 
     return Example(alpha, beta, gamma, a, b, u, u_x, f)
@@ -115,9 +115,9 @@ function montaK(base, ne, neq, dx, alpha, beta, gamma, EQoLG::Matrix{Int64})
     phiP = reduce(hcat, PHI(P, base))'; dphiP = reduce(hcat, dPHI(P, base))'
 
     parcelaNormal = beta*dx/2 * (W'.*phiP) * phiP';
-    parcelaDerivada1 = 0.0 * (W'.*dphiP) * phiP';
+    parcelaDerivada1 = gamma * (W'.*dphiP) * phiP';
     parcelaDerivada2 = 2*alpha/dx * (W'.*dphiP) * dphiP';
-    print(gamma)
+
     Ke = parcelaDerivada2 + parcelaDerivada1 + parcelaNormal
 
     base_idxs = 1:base.nB
@@ -214,7 +214,7 @@ function solveSys(base, alpha, beta, gamma, ne, a, b, f, u)
 
     C = zeros(Float64, neq)
 
-    C .= Symmetric(K)\F
+    C .= K\F
 
     F = nothing; K = nothing;
 
@@ -250,7 +250,7 @@ dE = similar(E)
 baseType = BaseTypes.linearLagrange
 exemplo = 3
 
-# @btime convergence_test!(NE, E, dE, exemplo)
-# plot(H, E, xaxis=:log10, yaxis=:log10); plot!(H, H .^LocalBases[Symbol(baseType)](2).nB, xaxis=:log10, yaxis=:log10)
+@btime convergence_test!(NE, E, dE, exemplo)
+plot(H, E, xaxis=:log10, yaxis=:log10); plot!(H, H .^LocalBases[Symbol(baseType)](2).nB, xaxis=:log10, yaxis=:log10)
 
 GC.gc()
