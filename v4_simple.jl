@@ -19,35 +19,44 @@ LocalBases = (
     Her3 = (ne) -> (type = BaseTypes.cubicHermite, p = 3, nB = 4, neq = 2*ne)
 )
 
-function Example(alpha, beta, gamma, a, b, u, u_x, f)
-    return (alpha = alpha, beta = beta, gamma = gamma, a = a, b = b, u = u, u_x = u_x, f = f)
+function Example(alpha, beta, gamma, sigma, a, b, u, u_x, f)
+    return (alpha = alpha, beta = beta, gamma = gamma, sigma = sigma, a = a, b = b, u = u, u_x = u_x, f = f)
 end
 
 function example1()
-    alpha = 1.0; beta = 1.0; gamma = 0.0; a = 0.0; b = 1.0;
+    alpha = 1.0; beta = 1.0; gamma = 0.0; sigma(x) = 0; a = 0.0; b = 1.0;
     u(x) = x + (exp(-x) - exp(x))/(exp(1.0) - exp(-1));
     u_x(x) = 1 - (exp(-x) + exp(x)) *(1/(exp(1.0) - exp(-1)));
     f(x) = x
 
-    return Example(alpha, beta, gamma, a, b, u, u_x, f)
+    return Example(alpha, beta, gamma, sigma, a, b, u, u_x, f)
 end
 
 function example2()
-    alpha = pi; beta = exp(1.0); gamma = 0.0; a = 0.0; b = 1.0;
+    alpha = pi; beta = exp(1.0); gamma = 0.0; sigma(x) = 0; a = 0.0; b = 1.0;
     u(x) = sin(pi*x);
     u_x(x) = cos(pi*x)*pi; u_xx(x) = -sin(pi*x)*pi^2;
     f(x) = -alpha*u_xx(x) + beta*u(x)
 
-    return Example(alpha, beta, gamma, a, b, u, u_x, f)
+    return Example(alpha, beta, gamma, sigma, a, b, u, u_x, f)
 end
 
 function example3()
-    alpha = 1.0; beta = 1.0; gamma = 1.0; a = 0.0; b = 1.0;
+    alpha = 1.0; beta = 1.0; gamma = 1.0; sigma(x) = 0; a = 0.0; b = 1.0;
     u(x) = 4*(x - 1/2)^2 - 1;
     u_x(x) = 8*(x - 1/2); u_xx(x) = 8;
     f(x) = -alpha*u_xx(x) + gamma*u_x(x) + beta*u(x)
 
-    return Example(alpha, beta, gamma, a, b, u, u_x, f)
+    return Example(alpha, beta, gamma, sigma, a, b, u, u_x, f)
+end
+
+function example4()
+    alpha = 1.0; beta = 0.0; gamma = 0.0; sigma(x) = 1.0; a = 0.0; b = 1.0;
+    u(x) = x + (exp(-x) - exp(x))/(exp(1.0) - exp(-1));
+    u_x(x) = 1 - (exp(-x) + exp(x)) *(1/(exp(1.0) - exp(-1)));
+    f(x) = x
+
+    return Example(alpha, beta, gamma, sigma, a, b, u, u_x, f)
 end
 
 function examples(case)
@@ -57,6 +66,8 @@ function examples(case)
         return example2()
     elseif case == 3
         return example3()
+    elseif case == 4
+        return example4()
     end
 end
 
@@ -109,7 +120,15 @@ function dPHI(P, base)
     end
 end
 
-function montaK(base, ne, neq, dx, alpha, beta, gamma, EQoLG::Matrix{Int64})
+function montaxPTne(dx, X, P)
+    return (dx ./ 2) .* (P .+ 1) .+ X
+end
+
+# function montaKe(P, W, phiP, dphiP, dx, alpha, beta, gamma)
+
+# end
+
+function montaK(base, ne, neq, dx, alpha, beta, gamma, sigma, EQoLG::Matrix{Int64}, X)
     npg = base.nB; P, W = legendre(npg)
 
     phiP = reduce(hcat, PHI(P, base))'; dphiP = reduce(hcat, dPHI(P, base))'
@@ -117,14 +136,30 @@ function montaK(base, ne, neq, dx, alpha, beta, gamma, EQoLG::Matrix{Int64})
     parcelaNormal = beta*dx/2 * (W'.*phiP) * phiP';
     parcelaDerivada1 = gamma * (W'.*dphiP) * phiP';
     parcelaDerivada2 = 2*alpha/dx * (W'.*dphiP) * dphiP';
-
+    
     Ke = parcelaDerivada2 + parcelaDerivada1 + parcelaNormal
+
+    xPTne = montaxPTne(dx, X[1:end-1]', P)
+    sxPTne = similar(xPTne)
+
+    Threads.@threads for i in eachindex(xPTne)
+        sxPTne[i] = sigma(xPTne[i])
+    end
+    
+    # parcelaNormalParamVar = dx/2 * (W'.*phiP) .* phiP' * sigma.(xPTne)
+
+
+    Se = zeros(Float64, ne * 4)
+    Threads.@threads for e in 0:ne-1
+        e0 = 4*e + 1
+        Se[e0:e0+3] .= vec(dx/2 * (W' .* sxPTne[:, e+1] .* phiP) .* phiP')
+    end
 
     base_idxs = 1:base.nB
 
     I = vec(@view EQoLG[repeat(1:base.nB, inner=base.nB), 1:1:ne])
     J = vec(@view EQoLG[base_idxs, repeat(1:1:ne, inner=base.nB)])
-    S = repeat(vec(Ke), outer=ne)
+    S = repeat(vec(Ke), outer=ne) .+ Se
 
     K = BandedMatrix(Zeros(neq, neq), (base.nB-1, base.nB-1))
     for (i,j,s) in zip(I,J,S)
@@ -136,10 +171,6 @@ function montaK(base, ne, neq, dx, alpha, beta, gamma, EQoLG::Matrix{Int64})
     S = nothing; I = nothing; J = nothing
 
     return K
-end
-
-function montaxPTne(dx, X, P)
-    return (dx ./ 2) .* (P .+ 1) .+ X
 end
 
 function montaF(base, ne, neq, X, f::Function, EQoLG)
@@ -197,7 +228,7 @@ function erroVet(base, ne, EQoLG, C, u, u_x, xPTne)
     return EL2, EH01
 end
 
-function solveSys(base, alpha, beta, gamma, ne, a, b, f, u)
+function solveSys(base, alpha, beta, gamma, sigma, ne, a, b, f, u)
     dx = 1/ne;
     neq = base.neq;
 
@@ -207,8 +238,8 @@ function solveSys(base, alpha, beta, gamma, ne, a, b, f, u)
     EQoLG = EQ[LG]
 
     EQ = nothing; LG = nothing;
-
-    K = montaK(base, ne, neq, dx, alpha, beta, gamma, EQoLG)
+    
+    K = montaK(base, ne, neq, dx, alpha, beta, gamma, sigma, EQoLG, X)
 
     F, xPTne = montaF(base, ne, neq, X, f, EQoLG)
 
@@ -223,9 +254,9 @@ end
 
 println("Rodando \n")
 let
-    alpha, beta, gamma, a, b, u, u_x, f = examples(3); ne = 2^15; baseType = BaseTypes.linearLagrange
+    alpha, beta, gamma, sigma, a, b, u, u_x, f = examples(4); ne = 2^15; baseType = BaseTypes.linearLagrange
     base = LocalBases[Symbol(baseType)](ne)
-    C, EQoLG, xPTne = solveSys(base, alpha, beta, gamma, ne, a, b, f, u)
+    C, EQoLG, xPTne = solveSys(base, alpha, beta, gamma, sigma, ne, a, b, f, u)
     X = vcat(a:(1/ne):b)[2:end-1]
     # C = nothing; X = nothing; EQoLG = nothing
 
@@ -233,22 +264,22 @@ let
 end
 
 function convergence_test!(NE, E, dE, example)
-    alpha, beta, gamma, a, b, u, u_x, f = examples(example)
+    alpha, beta, gamma, sigma, a, b, u, u_x, f = examples(example)
 
     for i = 1:lastindex(NE)
         base = LocalBases[Symbol(baseType)](NE[i])
-        Ci, EQoLGi, xPTnei = solveSys(base, alpha, beta, gamma, NE[i], a, b, f, u)
+        Ci, EQoLGi, xPTnei = solveSys(base, alpha, beta, gamma, sigma, NE[i], a, b, f, u)
         E[i], dE[i] = erroVet(base, NE[i], EQoLGi, Ci, u, u_x, xPTnei)
     end
 end
 
-errsize = 15
+errsize = 10
 NE = 2 .^ [2:1:errsize;]
 H = 1 ./NE
 E = zeros(length(NE))
 dE = similar(E)
 baseType = BaseTypes.linearLagrange
-exemplo = 3
+exemplo = 4
 
 @btime convergence_test!(NE, E, dE, exemplo)
 plot(H, E, xaxis=:log10, yaxis=:log10); plot!(H, H .^LocalBases[Symbol(baseType)](2).nB, xaxis=:log10, yaxis=:log10)
