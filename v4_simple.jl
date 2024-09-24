@@ -13,7 +13,7 @@ BaseTypes = (
 )
 
 LocalBases = (
-    Lag1 = (ne) -> (type = BaseTypes.linearLagrange, p = 1, nB = 2, neq = ne - 1),
+    Lag1 = (ne) -> (type = BaseTypes.linearLagrange, p = 2, nB = 2, neq = ne - 1),
     Lag2 = (ne) -> (type = BaseTypes.quadraticLagrange, p = 2, nB = 3, neq = 2*ne - 1),
     Lag3 = (ne) -> (type = BaseTypes.cubicLagrange, p = 3, nB = 4, neq = 3*ne - 1),
     Her3 = (ne) -> (type = BaseTypes.cubicHermite, p = 3, nB = 4, neq = 2*ne)
@@ -53,8 +53,19 @@ end
 function example4()
     alpha = 1.0; beta = 0.0; gamma = 0.0; sigma(x) = 1.0; a = 0.0; b = 1.0;
     u(x) = x + (exp(-x) - exp(x))/(exp(1.0) - exp(-1));
+    u_x(x) = 1 - (exp(-x) + exp(x)) * (1/(exp(1.0) - exp(-1)));
+    u_xx(x) = (1/(exp(1.0) - exp(-1))) * (-exp(x) + exp(-x));
+    f(x) = -alpha*u_xx(x) + sigma(x)*u(x)
+
+    return Example(alpha, beta, gamma, sigma, a, b, u, u_x, f)
+end
+
+function example5()
+    alpha = 1.0; beta = 0.0; gamma = 0.0; sigma(x) = sin(x); a = 0.0; b = 1.0;
+    u(x) = x + (exp(-x) - exp(x))/(exp(1.0) - exp(-1));
     u_x(x) = 1 - (exp(-x) + exp(x)) *(1/(exp(1.0) - exp(-1)));
-    f(x) = x
+    u_xx(x) = (1/(exp(1.0) - exp(-1))) * (-exp(x) + exp(-x));
+    f(x) = -alpha*u_xx(x) + sigma(x)*u(x)
 
     return Example(alpha, beta, gamma, sigma, a, b, u, u_x, f)
 end
@@ -68,6 +79,8 @@ function examples(case)
         return example3()
     elseif case == 4
         return example4()
+    elseif case == 5
+        return example5()
     end
 end
 
@@ -124,43 +137,56 @@ function montaxPTne(dx, X, P)
     return (dx ./ 2) .* (P .+ 1) .+ X
 end
 
+function xksi(ksi, e, X)
+    h = X[e+1] - X[e]
+    return h/2*(ksi+1) + X[e]
+end
+
 # function montaKe(P, W, phiP, dphiP, dx, alpha, beta, gamma)
 
 # end
 
 function montaK(base, ne, neq, dx, alpha, beta, gamma, sigma, EQoLG::Matrix{Int64}, X)
-    npg = base.nB; P, W = legendre(npg)
+    npg = base.p+1; P, W = legendre(npg)
 
     phiP = reduce(hcat, PHI(P, base))'; dphiP = reduce(hcat, dPHI(P, base))'
 
     parcelaNormal = beta*dx/2 * (W'.*phiP) * phiP';
     parcelaDerivada1 = gamma * (W'.*dphiP) * phiP';
     parcelaDerivada2 = 2*alpha/dx * (W'.*dphiP) * dphiP';
+
+    # xPTne = montaxPTne(dx, X[1:end-1]', P)
+    # sxPTne = similar(xPTne)
     
-    Ke = parcelaDerivada2 + parcelaDerivada1 + parcelaNormal
+    # Threads.@threads for i in eachindex(xPTne)
+        #     sxPTne[i] = sigma(xPTne[i])
+        # end
+        
+        # display(size(sxPTne))
+        
+    S = zeros(Float64, ne * 4)
+    for e in 0:(ne-1)
+        sig = sigma.([xksi(P[a], e+1, X) for a in 1:npg])
+        parcelaNormalParamVar = dx/2 * (W'.* sig' .* phiP) * phiP'
 
-    xPTne = montaxPTne(dx, X[1:end-1]', P)
-    sxPTne = similar(xPTne)
+        Ke = parcelaDerivada2 + parcelaDerivada1 + parcelaNormal + parcelaNormalParamVar
 
-    Threads.@threads for i in eachindex(xPTne)
-        sxPTne[i] = sigma(xPTne[i])
-    end
-    
-    # parcelaNormalParamVar = dx/2 * (W'.*phiP) .* phiP' * sigma.(xPTne)
-
-
-    Se = zeros(Float64, ne * 4)
-    Threads.@threads for e in 0:ne-1
         e0 = 4*e + 1
-        Se[e0:e0+3] .= vec(dx/2 * (W' .* sxPTne[:, e+1] .* phiP) .* phiP')
+        S[e0:e0+3] .= vec(Ke)
     end
+
+    # Se = zeros(Float64, ne * 4)
+    # Threads.@threads for e in 0:ne-1
+    #     e0 = 4*e + 1
+    #     Se[e0:e0+3] .= vec(dx/2 * (W' .* sxPTne[:, e+1] .* phiP) .* phiP')
+    # end
 
     base_idxs = 1:base.nB
 
     I = vec(@view EQoLG[repeat(1:base.nB, inner=base.nB), 1:1:ne])
     J = vec(@view EQoLG[base_idxs, repeat(1:1:ne, inner=base.nB)])
-    S = repeat(vec(Ke), outer=ne) .+ Se
-
+    # S = repeat(vec(Ke), outer=ne) #.+ Se
+    # display(S)
     K = BandedMatrix(Zeros(neq, neq), (base.nB-1, base.nB-1))
     for (i,j,s) in zip(I,J,S)
         if i <= neq && j <= neq
@@ -254,7 +280,7 @@ end
 
 println("Rodando \n")
 let
-    alpha, beta, gamma, sigma, a, b, u, u_x, f = examples(4); ne = 2^15; baseType = BaseTypes.linearLagrange
+    alpha, beta, gamma, sigma, a, b, u, u_x, f = examples(5); ne = 2^15; baseType = BaseTypes.linearLagrange
     base = LocalBases[Symbol(baseType)](ne)
     C, EQoLG, xPTne = solveSys(base, alpha, beta, gamma, sigma, ne, a, b, f, u)
     X = vcat(a:(1/ne):b)[2:end-1]
@@ -279,7 +305,7 @@ H = 1 ./NE
 E = zeros(length(NE))
 dE = similar(E)
 baseType = BaseTypes.linearLagrange
-exemplo = 4
+exemplo = 5
 
 @btime convergence_test!(NE, E, dE, exemplo)
 plot(H, E, xaxis=:log10, yaxis=:log10); plot!(H, H .^LocalBases[Symbol(baseType)](2).nB, xaxis=:log10, yaxis=:log10)
