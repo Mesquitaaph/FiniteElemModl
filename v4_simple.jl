@@ -142,10 +142,6 @@ function xksi(ksi, e, X)
     return h/2*(ksi+1) + X[e]
 end
 
-# function montaKe(P, W, phiP, dphiP, dx, alpha, beta, gamma)
-
-# end
-
 function montaK(base, ne, neq, dx, alpha, beta, gamma, sigma, EQoLG::Matrix{Int64}, X)
     npg = base.p+1; P, W = legendre(npg)
 
@@ -154,15 +150,6 @@ function montaK(base, ne, neq, dx, alpha, beta, gamma, sigma, EQoLG::Matrix{Int6
     parcelaNormal = beta*dx/2 * (W'.*phiP) * phiP';
     parcelaDerivada1 = gamma * (W'.*dphiP) * phiP';
     parcelaDerivada2 = 2*alpha/dx * (W'.*dphiP) * dphiP';
-
-    # xPTne = montaxPTne(dx, X[1:end-1]', P)
-    # sxPTne = similar(xPTne)
-    
-    # Threads.@threads for i in eachindex(xPTne)
-        #     sxPTne[i] = sigma(xPTne[i])
-        # end
-        
-        # display(size(sxPTne))
         
     S = zeros(Float64, ne * 4)
     for e in 0:(ne-1)
@@ -175,18 +162,11 @@ function montaK(base, ne, neq, dx, alpha, beta, gamma, sigma, EQoLG::Matrix{Int6
         S[e0:e0+3] .= vec(Ke)
     end
 
-    # Se = zeros(Float64, ne * 4)
-    # Threads.@threads for e in 0:ne-1
-    #     e0 = 4*e + 1
-    #     Se[e0:e0+3] .= vec(dx/2 * (W' .* sxPTne[:, e+1] .* phiP) .* phiP')
-    # end
-
     base_idxs = 1:base.nB
 
     I = vec(@view EQoLG[repeat(1:base.nB, inner=base.nB), 1:1:ne])
     J = vec(@view EQoLG[base_idxs, repeat(1:1:ne, inner=base.nB)])
-    # S = repeat(vec(Ke), outer=ne) #.+ Se
-    # display(S)
+
     K = BandedMatrix(Zeros(neq, neq), (base.nB-1, base.nB-1))
     for (i,j,s) in zip(I,J,S)
         if i <= neq && j <= neq
