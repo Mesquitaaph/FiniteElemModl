@@ -1,5 +1,4 @@
-using GaussQuadrature, StatsBase, SparseArrays, BenchmarkTools, LinearAlgebra, 
-Plots, MKL, BandedMatrices, LinearSolve
+using GaussQuadrature, StatsBase, SparseArrays, BenchmarkTools, LinearAlgebra, Plots, MKL, BandedMatrices, LinearSolve, Printf
 
 BLAS.set_num_threads(24)
 
@@ -163,30 +162,42 @@ function xksi(ksi, e, X)
 end
 
 function montaK(base, ne, neq, dx, alpha, beta, gamma, sigma, EQoLG::Matrix{Int64}, X)
-    npg = base.nB; P, W = legendre(npg)
+    npg = base.p+1; P, W = legendre(npg)
 
-    phiP = reduce(hcat, PHI(P, base))'; dphiP = reduce(hcat, dPHI(P, base))'
+    phiP = reduce(hcat, PHI(P, base)); dphiP = reduce(hcat, dPHI(P, base))
 
-    parcelaNormal = beta*dx/2 * (W'.*phiP) * phiP';
-    parcelaDerivada1 = gamma * (W'.*dphiP) * phiP';
-    parcelaDerivada2 = 2*alpha/dx * (W'.*dphiP) * dphiP';
+    Ke = zeros(Float64, 2, 2)
 
-    Ke = parcelaDerivada2 + parcelaDerivada1 + parcelaNormal
-
-    base_idxs = 1:base.nB
-
-    I = vec(@view EQoLG[repeat(1:base.nB, inner=base.nB), 1:1:ne])
-    J = vec(@view EQoLG[base_idxs, repeat(1:1:ne, inner=base.nB)])
-    S = repeat(vec(Ke), outer=ne)
+    Ke .+= beta*dx/2 * (W'.*phiP') * phiP; # parcelaNormal
+    Ke .+= gamma * (W'.*dphiP') * phiP; # parcelaDerivada1
+    Ke .+= 2*alpha/dx * (W'.*dphiP') * dphiP; # parcelaDerivada2
 
     K = BandedMatrix(Zeros(neq, neq), (base.nB-1, base.nB-1))
-    for (i,j,s) in zip(I,J,S)
-        if i <= neq && j <= neq
-            @inbounds K[i,j] += s
+    for e in 1:ne
+        for a in 1:2
+            @inbounds i = EQoLG[a, e]
+            for b in 1:2
+                @inbounds j = EQoLG[b, e]
+                if i <= neq && j <= neq
+                    @inbounds K[i,j] += Ke[a,b]
+                end
+            end
         end
     end
 
-    S = nothing; I = nothing; J = nothing
+    # base_idxs = 1:base.nB
+
+    # I = vec(@view EQoLG[repeat(1:base.nB, inner=base.nB), 1:1:ne])
+    # J = vec(@view EQoLG[base_idxs, repeat(1:1:ne, inner=base.nB)])
+    # S = repeat(vec(Ke), outer=ne)
+
+    # for (i,j,s) in zip(I,J,S)
+    #     if i <= neq && j <= neq
+    #         @inbounds K[i,j] += s
+    #     end
+    # end
+
+    # S = nothing; I = nothing; J = nothing
 
     return K
 end
@@ -403,6 +414,28 @@ dE = similar(E)
 baseType = BaseTypes.linearLagrange
 exemplo = 1
 
-@btime convergence_test!(NE, E, dE, exemplo, true)
-plot(H, E, xaxis=:log10, yaxis=:log10); plot!(H, H .^LocalBases[Symbol(baseType)](2).nB, xaxis=:log10, yaxis=:log10)
+# @btime convergence_test!(NE, E, dE, exemplo, true)
+# plot(H, E, xaxis=:log10, yaxis=:log10); plot!(H, H .^LocalBases[Symbol(baseType)](2).nB, xaxis=:log10, yaxis=:log10)
+
+
+
+
+alph, beta, gamma, sigma, a, b, u, u_x, f = examples(exemplo)
+ne = 2^24
+
+base = LocalBases[Symbol(baseType)](ne)
+
+dx = 1/ne;
+neq = base.neq;
+
+X = a:dx:b
+
+EQ = montaEQ(ne, neq, base); LG = montaLG(ne, base)
+
+EQoLG = EQ[LG]
+
+EQ = nothing; LG = nothing;
+@printf("ne = %f, function = %s, elapsed time =", ne, String(Symbol(montaK)))
+@btime montaK(base, ne, neq, dx, alph, beta, gamma, sigma, EQoLG, X)
+
 GC.gc()
