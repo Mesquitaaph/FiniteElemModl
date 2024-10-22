@@ -174,10 +174,10 @@ function montaK(base, ne, neq, dx, alpha, beta, gamma, sigma, EQoLG::Matrix{Int6
 
     K = BandedMatrix(Zeros(neq, neq), (base.nB-1, base.nB-1))
     for e in 1:ne
-        for a in 1:2
-            @inbounds i = EQoLG[a, e]
-            for b in 1:2
-                @inbounds j = EQoLG[b, e]
+        for b in 1:2
+            @inbounds j = EQoLG[b, e]
+            for a in 1:2
+                @inbounds i = EQoLG[a, e]
                 if i <= neq && j <= neq
                     @inbounds K[i,j] += Ke[a,b]
                 end
@@ -187,17 +187,19 @@ function montaK(base, ne, neq, dx, alpha, beta, gamma, sigma, EQoLG::Matrix{Int6
 
     # base_idxs = 1:base.nB
 
+
     # I = vec(@view EQoLG[repeat(1:base.nB, inner=base.nB), 1:1:ne])
     # J = vec(@view EQoLG[base_idxs, repeat(1:1:ne, inner=base.nB)])
     # S = repeat(vec(Ke), outer=ne)
 
+    # K = sparse(I, J, S)
     # for (i,j,s) in zip(I,J,S)
     #     if i <= neq && j <= neq
     #         @inbounds K[i,j] += s
     #     end
     # end
 
-    # S = nothing; I = nothing; J = nothing
+    S = nothing; I = nothing; J = nothing
 
     return K
 end
@@ -223,10 +225,10 @@ function montaKSerial(base, ne, neq, dx, alpha, beta, gamma, sigma, EQoLG::Matri
 
     K = BandedMatrix(Zeros(neq, neq), (base.nB-1, base.nB-1))
     for e in 1:ne
-        for a in 1:2
-            @inbounds i = EQoLG[a, e]
-            for b in 1:2
-                @inbounds j = EQoLG[b, e]
+        for b in 1:2
+            @inbounds j = EQoLG[b, e]
+            for a in 1:2
+                @inbounds i = EQoLG[a, e]
                 if i <= neq && j <= neq
                     @inbounds K[i,j] += Ke[a,b]
                 end
@@ -266,19 +268,25 @@ end
 function montaF_serial(base, ne, neq, X, f::Function, EQoLG)
     npg = 5; P, W = legendre(npg)
 
-    phiP(ksi, a) = PHI(ksi, base)[a]
+    phiP = zeros(npg, base.nB)
+    for a in 1:2
+        for ksi in 1:npg
+            phiP[ksi, a] = PHI(P[ksi], base)[a]
+        end
+    end
     
     dx = 1/ne
     
     F = zeros(neq+1)
     xPTne = zeros(npg, ne)
-    for ksi in 1:npg
-        for a in 1:2
-            @inbounds partial = dx/2 * W[ksi] * phiP(P[ksi], a)
-            for e in 1:ne
+    for e in 1:ne
+        for ksi in 1:npg
+            @inbounds fxptne = f(xksi(P[ksi], e, X))
+            @inbounds xPTne[ksi, e] = fxptne
+            for a in 1:2
+                @inbounds partial = dx/2 * W[ksi] * phiP[ksi, a]
                 @inbounds i = EQoLG[a, e]
-                @inbounds xPTne[ksi, e] = f(xksi(P[ksi], e, X))
-                @inbounds F[i] += partial * xPTne[ksi, e]
+                @inbounds F[i] += partial * fxptne
             end
         end
     end
@@ -406,7 +414,7 @@ function convergence_test!(NE, E, dE, example, serial)
     end
 end
 
-errsize = 15
+errsize = 23
 NE = 2 .^ [2:1:errsize;]
 H = 1 ./NE
 E = zeros(length(NE))
@@ -414,28 +422,32 @@ dE = similar(E)
 baseType = BaseTypes.linearLagrange
 exemplo = 1
 
-# @btime convergence_test!(NE, E, dE, exemplo, true)
+@btime convergence_test!(NE, E, dE, exemplo, false)
 # plot(H, E, xaxis=:log10, yaxis=:log10); plot!(H, H .^LocalBases[Symbol(baseType)](2).nB, xaxis=:log10, yaxis=:log10)
 
 
-
-
-alph, beta, gamma, sigma, a, b, u, u_x, f = examples(exemplo)
-ne = 2^24
-
-base = LocalBases[Symbol(baseType)](ne)
-
-dx = 1/ne;
-neq = base.neq;
-
-X = a:dx:b
-
-EQ = montaEQ(ne, neq, base); LG = montaLG(ne, base)
-
-EQoLG = EQ[LG]
-
-EQ = nothing; LG = nothing;
-@printf("ne = %f, function = %s, elapsed time =", ne, String(Symbol(montaK)))
-@btime montaK(base, ne, neq, dx, alph, beta, gamma, sigma, EQoLG, X)
-
 GC.gc()
+
+# alph, beta, gamma, sigma, a, b, u, u_x, f = examples(exemplo)
+# ne = 2^23
+
+# base = LocalBases[Symbol(baseType)](ne)
+
+# dx = 1/ne;
+# neq = base.neq;
+
+# X = a:dx:b
+
+# EQ = montaEQ(ne, neq, base); LG = montaLG(ne, base)
+
+# EQoLG = EQ[LG]
+
+# EQ = nothing; LG = nothing;
+
+# @printf("ne = %f, Matrix Type = %s, elapsed time =", ne, "Serial")
+# @benchmark montaF_serial(base, ne, neq, X, f, EQoLG)
+
+# @printf("ne = %f, Matrix Type = %s, elapsed time =", ne, "Vetorized")
+# @benchmark montaK(base, ne, neq, dx, alph, beta, gamma, sigma, EQoLG, X)
+
+# GC.gc()
