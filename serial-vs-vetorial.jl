@@ -468,7 +468,7 @@ function montaK_serial_wrapper(alph, beta, gamma, sigma, i)
     
     X = a:dx:b
     
-    EQ = montaEQ(ne, neq, base); LG = montaLG(ne, base)
+    EQ = montaEQ_serial(ne, neq, base); LG = montaLG_serial(ne, base)
     
     EQoLG = EQ[LG]
     
@@ -480,13 +480,44 @@ end
 
 bench_vetorial = zeros(Float64, size(NE))
 for i in 1:lastindex(NE)
-    bench = @benchmark montaK_wrapper(alph, beta, gamma, sigma, $i)
+    ne = NE[i]
+    dx = 1/ne
+    
+    base = LocalBases[Symbol(baseType)](ne)
+    
+    neq = base.neq;
+    
+    X = a:dx:b
+    
+    EQ = montaEQ(ne, neq, base); LG = montaLG(ne, base)
+    
+    EQoLG = EQ[LG]
+    
+    EQ = nothing; LG = nothing;
+
+    bench = @benchmark montaK($base, ne, $neq, dx, alph, beta, gamma, sigma, $EQoLG, $X)
+
     bench_vetorial[i] = mean(bench.times)
 end
 
 bench_serial = similar(bench_vetorial)
 for i in 1:lastindex(NE)
-    bench = @benchmark montaK_serial_wrapper(alph, beta, gamma, sigma, $i)
+    ne = NE[i]
+    dx = 1/ne
+    
+    base = LocalBases[Symbol(baseType)](ne)
+    
+    neq = base.neq;
+    
+    X = a:dx:b
+    
+    EQ = montaEQ_serial(ne, neq, base); LG = montaLG_serial(ne, base)
+    
+    EQoLG = EQ[LG]
+    
+    EQ = nothing; LG = nothing;
+
+    bench = @benchmark montaKSerial($base, ne, $neq, dx, alph, beta, gamma, sigma, $EQoLG, $X)
     bench_serial[i] = mean(bench.times)
 end
 
@@ -515,8 +546,15 @@ plot(
     [2:1:errsize;], bench_serial, yaxis=:log10, 
     label="Serial", xlabel="Número de elementos (\$2^n\$)", ylabel="Tempo de execução (ns)",
     yticks=10 .^[1:1:10;]
-); p = plot!([2:1:errsize;], bench_vetorial, yaxis=:log10, label="Vetorial", fmt = :png)
+); 
+p = plot!([2:1:errsize;], bench_vetorial, yaxis=:log10, label="Vetorial", fmt = :png)
 savefig(p, "Vetorial vs Serial - Nº Elementos x Tempo.png")
+
+plot(
+    [2:1:errsize;], bench_serial./bench_vetorial, yaxis=:log10, 
+    label="Serial", xlabel="Número de elementos (\$2^n\$)", ylabel="Tempo de execução (ns)",
+    yticks=10 .^[1:1:10;]
+)
 # @printf("ne = %f, Matrix Type = %s, elapsed time =", ne, "Serial")
 # @benchmark montaF_serial(base, ne, neq, X, f, EQoLG)
 
