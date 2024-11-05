@@ -551,9 +551,9 @@ p = plot!([2:1:errsize;], bench_vetorial, yaxis=:log10, label="Vetorial", fmt = 
 savefig(p, "Vetorial vs Serial - Nº Elementos x Tempo.png")
 
 plot(
-    [2:1:errsize;], bench_serial./bench_vetorial, yaxis=:log10, 
+    [2:1:errsize;], bench_serial./bench_vetorial, 
     label="Serial", xlabel="Número de elementos (\$2^n\$)", ylabel="Tempo de execução (ns)",
-    yticks=10 .^[1:1:10;]
+    yticks=[0:.125:3;]
 )
 # @printf("ne = %f, Matrix Type = %s, elapsed time =", ne, "Serial")
 # @benchmark montaF_serial(base, ne, neq, X, f, EQoLG)
