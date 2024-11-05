@@ -1,9 +1,11 @@
 [deps]
 BandedMatrices = "aae01518-5342-5314-be14-df237901396f"
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 FastGaussQuadrature = "442a2c76-b920-505d-bb47-c5924d526838"
 GaussQuadrature = "d54b0c1a-921d-58e0-8e36-89d8069c0969"
 Krylov = "ba0b0d4f-ebba-5204-a429-3ac8c609bfb7"
+Latexify = "23fbe1c1-3f47-55db-b15f-69d7ec21a316"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 LinearSolve = "7ed4a6bd-45f5-4d41-b270-4a48e9bafcae"
 MKL = "33e6dc65-8f57-5167-99aa-e5a354878fb2"

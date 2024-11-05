@@ -1,4 +1,4 @@
-using GaussQuadrature, StatsBase, SparseArrays, BenchmarkTools, LinearAlgebra, Plots, MKL, BandedMatrices, LinearSolve, Printf
+using GaussQuadrature, StatsBase, SparseArrays, BenchmarkTools, LinearAlgebra, Plots, MKL, BandedMatrices, LinearSolve, Printf, DataFrames, Latexify
 
 BLAS.set_num_threads(24)
 
@@ -386,15 +386,18 @@ function solveSys_serial(base, alpha, beta, gamma, sigma, ne, a, b, f, u)
 end
 
 println("Rodando \n")
-# let
-#     alpha, beta, gamma, sigma, a, b, u, u_x, f = examples(3); ne = 2^3; baseType = BaseTypes.linearLagrange
+# teste = @benchmark begin
+#     alpha, beta, gamma, sigma, a, b, u, u_x, f = examples(3); ne = 2^2; baseType = BaseTypes.linearLagrange
 #     base = LocalBases[Symbol(baseType)](ne)
 #     C, EQoLG, xPTne = solveSys(base, alpha, beta, gamma, sigma, ne, a, b, f, u)
-#     X = vcat(a:(1/ne):b)[2:end-1]
+#     # X = vcat(a:(1/ne):b)[2:end-1]
 #     # C = nothing; X = nothing; EQoLG = nothing
 
-#     plot(X, u.(X)); plot!(X, C)
+#     # plot(X, u.(X)); plot!(X, C)
 # end
+
+# teste
+# maximum(teste.times)/1000_000
 
 function convergence_test!(NE, E, dE, example, serial)
     alpha, beta, gamma, sigma, a, b, u, u_x, f = examples(example)
@@ -414,7 +417,7 @@ function convergence_test!(NE, E, dE, example, serial)
     end
 end
 
-errsize = 23
+errsize = 20
 NE = 2 .^ [2:1:errsize;]
 H = 1 ./NE
 E = zeros(length(NE))
@@ -422,32 +425,101 @@ dE = similar(E)
 baseType = BaseTypes.linearLagrange
 exemplo = 1
 
-@btime convergence_test!(NE, E, dE, exemplo, false)
+# test = @benchmark convergence_test!(NE, E, dE, exemplo, false)
+
+# mean(test.times)
 # plot(H, E, xaxis=:log10, yaxis=:log10); plot!(H, H .^LocalBases[Symbol(baseType)](2).nB, xaxis=:log10, yaxis=:log10)
 
 
 GC.gc()
 
-# alph, beta, gamma, sigma, a, b, u, u_x, f = examples(exemplo)
-# ne = 2^23
+alph, beta, gamma, sigma, a, b, u, u_x, f = examples(exemplo)
 
-# base = LocalBases[Symbol(baseType)](ne)
+ne = 2^20
+dx = 1/ne;
 
-# dx = 1/ne;
-# neq = base.neq;
+function montaK_wrapper(alph, beta, gamma, sigma, i)
+    ne = NE[i]
+    dx = 1/ne
+    
+    base = LocalBases[Symbol(baseType)](ne)
+    
+    neq = base.neq;
+    
+    X = a:dx:b
+    
+    EQ = montaEQ(ne, neq, base); LG = montaLG(ne, base)
+    
+    EQoLG = EQ[LG]
+    
+    EQ = nothing; LG = nothing;
 
-# X = a:dx:b
+    K = montaK(base, ne, neq, dx, alph, beta, gamma, sigma, EQoLG, X)
+    K = nothing;
+end
 
-# EQ = montaEQ(ne, neq, base); LG = montaLG(ne, base)
+function montaK_serial_wrapper(alph, beta, gamma, sigma, i)
+    ne = NE[i]
+    dx = 1/ne
+    
+    base = LocalBases[Symbol(baseType)](ne)
+    
+    neq = base.neq;
+    
+    X = a:dx:b
+    
+    EQ = montaEQ(ne, neq, base); LG = montaLG(ne, base)
+    
+    EQoLG = EQ[LG]
+    
+    EQ = nothing; LG = nothing;
 
-# EQoLG = EQ[LG]
+    K = montaKSerial(base, ne, neq, dx, alph, beta, gamma, sigma, EQoLG, X)
+    K = nothing;
+end
 
-# EQ = nothing; LG = nothing;
+bench_vetorial = zeros(Float64, size(NE))
+for i in 1:lastindex(NE)
+    bench = @benchmark montaK_wrapper(alph, beta, gamma, sigma, $i)
+    bench_vetorial[i] = mean(bench.times)
+end
 
+bench_serial = similar(bench_vetorial)
+for i in 1:lastindex(NE)
+    bench = @benchmark montaK_serial_wrapper(alph, beta, gamma, sigma, $i)
+    bench_serial[i] = mean(bench.times)
+end
+
+function format_num(n)
+    units = ["ns", "\$\\mu\$s", "ms", "s"]
+    exp_div3 = trunc(Int, trunc(Int, log10(n))/3)
+
+    num_sized = n/exp10(exp_div3*3)
+    return string(num_sized)[1:7] * units[exp_div3]
+end
+
+sum_serial = sum(bench_serial)
+sum_vetorial = sum(sum(bench_vetorial))
+
+
+df = DataFrame(
+    ne=vcat(string.("\$2^{", [2:1:errsize;],"}\$"), "sum"), 
+    serial=format_num.(vcat(bench_serial, sum_serial)), 
+    vetorial=format_num.(vcat(bench_vetorial, sum_vetorial)), 
+    speedup=first.(string.(vcat(bench_serial./bench_vetorial, sum_serial/sum_vetorial)), 7)
+)
+
+latexify(df; env = :table, booktabs = true, latex = false) |> print
+
+plot(
+    [2:1:errsize;], bench_serial, yaxis=:log10, 
+    label="Serial", xlabel="Número de elementos (\$2^n\$)", ylabel="Tempo de execução (ns)",
+    yticks=10 .^[1:1:10;]
+); p = plot!([2:1:errsize;], bench_vetorial, yaxis=:log10, label="Vetorial", fmt = :png)
+savefig(p, "Vetorial vs Serial - Nº Elementos x Tempo.png")
 # @printf("ne = %f, Matrix Type = %s, elapsed time =", ne, "Serial")
 # @benchmark montaF_serial(base, ne, neq, X, f, EQoLG)
 
 # @printf("ne = %f, Matrix Type = %s, elapsed time =", ne, "Vetorized")
 # @benchmark montaK(base, ne, neq, dx, alph, beta, gamma, sigma, EQoLG, X)
-
-# GC.gc()
+GC.gc()
